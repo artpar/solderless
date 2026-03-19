@@ -60,7 +60,7 @@ export function PhaserGame({ positioned, board, layers, onComponentHover, onComp
         pixelArt: false,
       },
       input: {
-        mouse: { preventDefaultWheel: true },
+        mouse: { preventDefaultWheel: false },
       },
       audio: { noAudio: true },
     })

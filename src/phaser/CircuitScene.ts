@@ -35,11 +35,8 @@ export class CircuitScene extends Phaser.Scene {
   private tooltip: TooltipContainer | null = null
 
   private isDragging = false
+  private isRotating = false
   private lastPointer = { x: 0, y: 0 }
-  private pinchStartDist = 0
-  private pinchStartZoom = 1
-  private pinchStartAngle = 0
-  private pinchStartRotation = 0
   private alive = false
 
   constructor() {
@@ -52,83 +49,7 @@ export class CircuitScene extends Phaser.Scene {
     this.cameras.main.setRoundPixels(true)
 
     // --- Camera controls ---
-
-    // Left-drag to pan
-    this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
-      if (pointer.leftButtonDown()) {
-        this.isDragging = true
-        this.lastPointer = { x: pointer.x, y: pointer.y }
-      }
-    })
-
-    this.input.on('pointermove', (pointer: Phaser.Input.Pointer) => {
-      if (this.isDragging && pointer.leftButtonDown()) {
-        const dx = pointer.x - this.lastPointer.x
-        const dy = pointer.y - this.lastPointer.y
-        this.lastPointer = { x: pointer.x, y: pointer.y }
-
-        const cam = this.cameras.main
-        // Account for camera rotation when panning
-        const cos = Math.cos(-cam.rotation)
-        const sin = Math.sin(-cam.rotation)
-        const worldDx = (dx * cos - dy * sin) / cam.zoom
-        const worldDy = (dx * sin + dy * cos) / cam.zoom
-        cam.scrollX -= worldDx
-        cam.scrollY -= worldDy
-      }
-    })
-
-    this.input.on('pointerup', () => {
-      this.isDragging = false
-    })
-
-    // Scroll wheel: zoom toward cursor
-    this.input.on('wheel', (pointer: Phaser.Input.Pointer, _gameObjects: unknown, _dx: number, dy: number) => {
-      const cam = this.cameras.main
-      const oldZoom = cam.zoom
-      const factor = dy > 0 ? 0.9 : 1.1
-      const newZoom = Phaser.Math.Clamp(oldZoom * factor, 0.1, 5.0)
-
-      // Zoom toward pointer position
-      const worldBefore = cam.getWorldPoint(pointer.x, pointer.y)
-      cam.zoom = newZoom
-      const worldAfter = cam.getWorldPoint(pointer.x, pointer.y)
-      cam.scrollX += worldBefore.x - worldAfter.x
-      cam.scrollY += worldBefore.y - worldAfter.y
-    })
-
-    // Pinch zoom + rotate (trackpad / touch)
-    this.input.addPointer(1) // support 2 pointers
-    this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
-      const pointers = this.input.manager.pointers.filter(p => p.isDown)
-      if (pointers.length === 2) {
-        this.isDragging = false // cancel single-finger pan
-        const [p1, p2] = pointers
-        this.pinchStartDist = Phaser.Math.Distance.Between(p1.x, p1.y, p2.x, p2.y)
-        this.pinchStartZoom = this.cameras.main.zoom
-        this.pinchStartAngle = Math.atan2(p2.y - p1.y, p2.x - p1.x)
-        this.pinchStartRotation = this.cameras.main.rotation
-      }
-    })
-
-    this.input.on('pointermove', () => {
-      const pointers = this.input.manager.pointers.filter(p => p.isDown)
-      if (pointers.length === 2) {
-        const [p1, p2] = pointers
-        const cam = this.cameras.main
-
-        // Pinch zoom
-        const dist = Phaser.Math.Distance.Between(p1.x, p1.y, p2.x, p2.y)
-        if (this.pinchStartDist > 0) {
-          const scale = dist / this.pinchStartDist
-          cam.zoom = Phaser.Math.Clamp(this.pinchStartZoom * scale, 0.1, 5.0)
-        }
-
-        // Two-finger rotate
-        const angle = Math.atan2(p2.y - p1.y, p2.x - p1.x)
-        cam.rotation = this.pinchStartRotation + (angle - this.pinchStartAngle)
-      }
-    })
+    this.setupControls()
 
     // EventBus listeners for subsequent updates
     EventBus.on(BOARD_CHANGED, this.onBoardChanged, this)
@@ -170,6 +91,101 @@ export class CircuitScene extends Phaser.Scene {
     if (!this.alive) return
     this.layers = layers
     this.updateWireVisibility()
+  }
+
+  private nativeListeners: (() => void)[] = []
+
+  private setupControls(): void {
+    const canvas = this.game.canvas
+
+    // Left-drag to pan, Shift+left-drag to rotate
+    this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+      if (pointer.leftButtonDown()) {
+        this.lastPointer = { x: pointer.x, y: pointer.y }
+        if (pointer.event.shiftKey) {
+          this.isRotating = true
+        } else {
+          this.isDragging = true
+        }
+      }
+    })
+
+    this.input.on('pointermove', (pointer: Phaser.Input.Pointer) => {
+      if (!pointer.leftButtonDown()) return
+      const dx = pointer.x - this.lastPointer.x
+      const dy = pointer.y - this.lastPointer.y
+      this.lastPointer = { x: pointer.x, y: pointer.y }
+
+      const cam = this.cameras.main
+
+      if (this.isRotating) {
+        // Horizontal drag rotates the view
+        cam.rotation += dx * 0.003
+      } else if (this.isDragging) {
+        // Account for camera rotation when panning
+        const cos = Math.cos(-cam.rotation)
+        const sin = Math.sin(-cam.rotation)
+        const worldDx = (dx * cos - dy * sin) / cam.zoom
+        const worldDy = (dx * sin + dy * cos) / cam.zoom
+        cam.scrollX -= worldDx
+        cam.scrollY -= worldDy
+      }
+    })
+
+    this.input.on('pointerup', () => {
+      this.isDragging = false
+      this.isRotating = false
+    })
+
+    // Scroll wheel: zoom toward cursor (smooth, proportional to dy)
+    // ctrlKey+wheel = trackpad pinch (same behavior)
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault()
+      const cam = this.cameras.main
+
+      // Normalize delta: trackpad pinch sends ctrlKey+wheel with small deltas,
+      // mouse wheel sends larger discrete deltas
+      let delta = e.deltaY
+      if (e.deltaMode === 1) delta *= 16 // line mode → pixels
+      // Clamp to avoid extreme jumps from momentum scrolling
+      delta = Math.max(-100, Math.min(100, delta))
+
+      const zoomFactor = 1 - delta * 0.002
+      const oldZoom = cam.zoom
+      const newZoom = Phaser.Math.Clamp(oldZoom * zoomFactor, 0.1, 5.0)
+
+      // Convert CSS cursor position to game-space coords
+      const rect = canvas.getBoundingClientRect()
+      const gameX = (e.clientX - rect.left) * (canvas.width / rect.width)
+      const gameY = (e.clientY - rect.top) * (canvas.height / rect.height)
+
+      // Zoom toward cursor: adjust scroll so the world point under the cursor stays fixed
+      // worldX = scrollX + originX + (gameX - originX) / zoom
+      const originX = cam.width * 0.5
+      const originY = cam.height * 0.5
+      const zoomDiff = 1 / oldZoom - 1 / newZoom
+      cam.scrollX += (gameX - originX) * zoomDiff
+      cam.scrollY += (gameY - originY) * zoomDiff
+      cam.zoom = newZoom
+    }
+    canvas.addEventListener('wheel', onWheel, { passive: false })
+    this.nativeListeners.push(() => canvas.removeEventListener('wheel', onWheel))
+
+    // Safari gesturechange: trackpad rotate
+    const onGesture = (e: Event) => {
+      e.preventDefault()
+      const ge = e as unknown as { rotation: number }
+      if (typeof ge.rotation === 'number') {
+        this.cameras.main.rotation = ge.rotation * (Math.PI / 180)
+      }
+    }
+    canvas.addEventListener('gesturechange', onGesture, { passive: false } as EventListenerOptions)
+    this.nativeListeners.push(() => canvas.removeEventListener('gesturechange', onGesture))
+
+    // Prevent Safari gesturestart default to avoid page zoom
+    const onGestureStart = (e: Event) => e.preventDefault()
+    canvas.addEventListener('gesturestart', onGestureStart, { passive: false } as EventListenerOptions)
+    this.nativeListeners.push(() => canvas.removeEventListener('gesturestart', onGestureStart))
   }
 
   private resetCamera = () => {
@@ -342,6 +358,8 @@ export class CircuitScene extends Phaser.Scene {
 
   shutdown(): void {
     this.alive = false
+    this.nativeListeners.forEach(fn => fn())
+    this.nativeListeners = []
     EventBus.off(BOARD_CHANGED, this.onBoardChanged, this)
     EventBus.off(LAYERS_CHANGED, this.onLayersChanged, this)
     EventBus.off(RESET_VIEWPORT, this.resetCamera, this)
