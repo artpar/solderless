@@ -3,7 +3,7 @@
 import { PlacedComponent } from '../../layout/placement'
 import { toIsometric } from '../../layout/isometric'
 import { getComponentColor, COLORS } from '../colors'
-import { drawIsoBox, drawPins } from './shared'
+import { drawIsoBox, drawTypePins } from './shared'
 
 export function drawSubcircuit(
   ctx: CanvasRenderingContext2D,
@@ -122,6 +122,8 @@ function drawChip(
     ctx.fillText('▶ expand', Math.round(center.sx), Math.round(center.sy) + 18)
   }
 
-  drawPins(ctx, worldX, worldY, worldZ, width, height, depth,
-    comp.inputPins.length, comp.outputPins.length, comp.isReachable)
+  drawTypePins(ctx, worldX, worldY, worldZ, width, height, depth,
+    comp.inputPins, 'input', comp.isReachable)
+  drawTypePins(ctx, worldX, worldY, worldZ, width, height, depth,
+    comp.outputPins, 'output', comp.isReachable)
 }

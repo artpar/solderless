@@ -3,7 +3,7 @@
 import { PlacedComponent } from '../../layout/placement'
 import { toIsometric } from '../../layout/isometric'
 import { getComponentColor, COLORS } from '../colors'
-import { drawIsoBox, drawPins } from './shared'
+import { drawIsoBox, drawTypePins } from './shared'
 
 export function drawDemux(
   ctx: CanvasRenderingContext2D,
@@ -35,6 +35,8 @@ export function drawDemux(
   ctx.fillStyle = COLORS.pinText
   ctx.fillText(comp.label.slice(0, 12), Math.round(center.sx), Math.round(center.sy) + 10)
 
-  drawPins(ctx, worldX, worldY, worldZ, width, height, depth,
-    comp.inputPins.length, comp.outputPins.length, comp.isReachable)
+  drawTypePins(ctx, worldX, worldY, worldZ, width, height, depth,
+    comp.inputPins, 'input', comp.isReachable)
+  drawTypePins(ctx, worldX, worldY, worldZ, width, height, depth,
+    comp.outputPins, 'output', comp.isReachable)
 }

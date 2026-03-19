@@ -8,6 +8,8 @@ import {
   Wire,
   ClockSegment,
   Pin,
+  TypeShape,
+  UNKNOWN_TYPE,
   makeBoard,
   makeComponent,
   makeWire,
@@ -18,6 +20,7 @@ import {
 import { parseSource, getSourceLoc, isUnreachable, type ParseResult } from './flow-adapter'
 import { buildScopes, detectClosureWires } from './scope-builder'
 import { markDeadCode } from './dead-code'
+import { resolveTypeShape, literalTypeShape, tsTypeToShape } from './type-resolver'
 
 interface BuildContext {
   board: CircuitBoard
@@ -131,6 +134,12 @@ function processVariableDeclaration(
     loc,
   )
   comp.isReachable = reachable
+
+  // Resolve type shape for this variable
+  const shape = resolveTypeShape(decl, ctx.checker)
+  comp.inputPins[0].typeShape = shape
+  comp.outputPins[0].typeShape = shape
+
   addComponent(comp, ctx)
 
   // If there's an initializer, process it and wire to this declaration
@@ -169,12 +178,20 @@ function processFunctionDeclaration(
   // Build sub-circuit for function body
   const subBoard = makeBoard(name)
 
-  // Add parameter input pins
+  // Add parameter input pins with resolved types
   for (const param of node.parameters) {
     const pName = param.name.getText(ctx.sourceFile)
-    const pin = makePin(comp.id, pName, 'input')
+    const paramShape = resolveTypeShape(param, ctx.checker)
+    const pin = makePin(comp.id, pName, 'input', paramShape)
     comp.inputPins.push(pin)
     subBoard.inputPins.push(pin)
+  }
+
+  // Resolve return type
+  const sig = ctx.checker.getSignatureFromDeclaration(node)
+  if (sig) {
+    const retType = ctx.checker.getReturnTypeOfSignature(sig)
+    comp.outputPins[0].typeShape = tsTypeToShape(retType, ctx.checker, 0)
   }
 
   // Exception pin
@@ -248,7 +265,8 @@ function processClassDeclaration(
 
       for (const param of member.parameters) {
         const pName = param.name.getText(ctx.sourceFile)
-        mComp.inputPins.push(makePin(mComp.id, pName, 'input'))
+        const paramShape = resolveTypeShape(param, ctx.checker)
+        mComp.inputPins.push(makePin(mComp.id, pName, 'input', paramShape))
       }
 
       addComponent(mComp, subCtx)
@@ -271,6 +289,9 @@ function processClassDeclaration(
       const pName = member.name.getText(ctx.sourceFile)
       const pComp = makeComponent('register', 'property', pName, 1, 1, getSourceLoc(member, ctx.sourceFile))
       pComp.isReachable = reachable
+      const propShape = resolveTypeShape(member, ctx.checker)
+      pComp.inputPins[0].typeShape = propShape
+      pComp.outputPins[0].typeShape = propShape
       addComponent(pComp, subCtx)
 
       if (member.initializer) {
@@ -284,7 +305,8 @@ function processClassDeclaration(
       cComp.isReachable = reachable
       for (const param of member.parameters) {
         const pName = param.name.getText(ctx.sourceFile)
-        cComp.inputPins.push(makePin(cComp.id, pName, 'input'))
+        const paramShape = resolveTypeShape(param, ctx.checker)
+        cComp.inputPins.push(makePin(cComp.id, pName, 'input', paramShape))
       }
       addComponent(cComp, subCtx)
     }
@@ -775,6 +797,9 @@ function processExpression(
   const loc = getSourceLoc(node, ctx.sourceFile)
   const comp = makeComponent('gate', 'expr', node.getText(ctx.sourceFile).slice(0, 30), 0, 1, loc)
   comp.isReachable = reachable
+  if (comp.outputPins[0]) {
+    comp.outputPins[0].typeShape = resolveTypeShape(node, ctx.checker)
+  }
   addComponent(comp, ctx)
   return comp.outputPins[0]?.id ?? null
 }
@@ -817,6 +842,9 @@ function processBinaryExpression(
 
   const comp = makeComponent(kind, op, op, 2, 1, loc)
   comp.isReachable = reachable
+  comp.inputPins[0].typeShape = resolveTypeShape(node.left, ctx.checker)
+  comp.inputPins[1].typeShape = resolveTypeShape(node.right, ctx.checker)
+  comp.outputPins[0].typeShape = resolveTypeShape(node, ctx.checker)
   addComponent(comp, ctx)
 
   if (leftPin) ctx.board.wires.push(makeWire(leftPin, comp.inputPins[0].id))
@@ -839,6 +867,8 @@ function processPrefixUnary(
 
   const comp = makeComponent('gate', op, op, 1, 1, loc)
   comp.isReachable = reachable
+  comp.inputPins[0].typeShape = resolveTypeShape(node.operand, ctx.checker)
+  comp.outputPins[0].typeShape = resolveTypeShape(node, ctx.checker)
   addComponent(comp, ctx)
 
   if (operandPin) ctx.board.wires.push(makeWire(operandPin, comp.inputPins[0].id))
@@ -890,6 +920,15 @@ function processCallExpression(
     comp.outputPins[1].kind = 'exception'
     comp.outputPins[1].label = 'exception'
   }
+
+  // Resolve argument types
+  for (let i = 0; i < node.arguments.length; i++) {
+    if (comp.inputPins[i + 1]) {
+      comp.inputPins[i + 1].typeShape = resolveTypeShape(node.arguments[i], ctx.checker)
+    }
+  }
+  // Resolve return type
+  comp.outputPins[0].typeShape = resolveTypeShape(node, ctx.checker)
 
   addComponent(comp, ctx)
 
@@ -952,6 +991,8 @@ function processPropertyAccess(
 
   const comp = makeComponent('gate', '.', `.${propName}`, 1, 1, loc)
   comp.isReachable = reachable
+  comp.inputPins[0].typeShape = resolveTypeShape(node.expression, ctx.checker)
+  comp.outputPins[0].typeShape = resolveTypeShape(node, ctx.checker)
   addComponent(comp, ctx)
 
   if (objPin) ctx.board.wires.push(makeWire(objPin, comp.inputPins[0].id))
@@ -970,6 +1011,9 @@ function processElementAccess(
 
   const comp = makeComponent('gate', '[]', '[]', 2, 1, loc)
   comp.isReachable = reachable
+  comp.inputPins[0].typeShape = resolveTypeShape(node.expression, ctx.checker)
+  comp.inputPins[1].typeShape = resolveTypeShape(node.argumentExpression, ctx.checker)
+  comp.outputPins[0].typeShape = resolveTypeShape(node, ctx.checker)
   addComponent(comp, ctx)
 
   if (objPin) ctx.board.wires.push(makeWire(objPin, comp.inputPins[0].id))
@@ -988,6 +1032,8 @@ function processAwait(
 
   const comp = makeComponent('latch', 'await', 'await', 1, 1, loc)
   comp.isReachable = reachable
+  comp.inputPins[0].typeShape = resolveTypeShape(node.expression, ctx.checker)
+  comp.outputPins[0].typeShape = resolveTypeShape(node, ctx.checker)
   addComponent(comp, ctx)
 
   if (exprPin) ctx.board.wires.push(makeWire(exprPin, comp.inputPins[0].id))
@@ -1013,9 +1059,17 @@ function processArrowOrFunctionExpr(
 
   for (const param of node.parameters) {
     const pName = param.name.getText(ctx.sourceFile)
-    const pin = makePin(comp.id, pName, 'input')
+    const paramShape = resolveTypeShape(param, ctx.checker)
+    const pin = makePin(comp.id, pName, 'input', paramShape)
     comp.inputPins.push(pin)
     subBoard.inputPins.push(pin)
+  }
+
+  // Resolve return type
+  const fnSig = ctx.checker.getSignatureFromDeclaration(node)
+  if (fnSig) {
+    const retType = ctx.checker.getReturnTypeOfSignature(fnSig)
+    comp.outputPins[0].typeShape = tsTypeToShape(retType, ctx.checker, 0)
   }
 
   const excPin = makePin(comp.id, 'exception', 'exception')
@@ -1071,6 +1125,7 @@ function processTemplateExpression(
 
   const comp = makeComponent('gate', 'template', '`...`', inputPins.length, 1, loc)
   comp.isReachable = reachable
+  comp.outputPins[0].typeShape = { tag: 'string', units: 10, label: 'str' }
   addComponent(comp, ctx)
 
   for (let i = 0; i < inputPins.length; i++) {
@@ -1090,6 +1145,7 @@ function processArrayLiteral(
   const loc = getSourceLoc(node, ctx.sourceFile)
   const comp = makeComponent('gate', '[]', '[...]', node.elements.length, 1, loc)
   comp.isReachable = reachable
+  comp.outputPins[0].typeShape = resolveTypeShape(node, ctx.checker)
   addComponent(comp, ctx)
 
   for (let i = 0; i < node.elements.length; i++) {
@@ -1110,6 +1166,7 @@ function processObjectLiteral(
   const loc = getSourceLoc(node, ctx.sourceFile)
   const comp = makeComponent('gate', '{}', '{...}', node.properties.length, 1, loc)
   comp.isReachable = reachable
+  comp.outputPins[0].typeShape = resolveTypeShape(node, ctx.checker)
   addComponent(comp, ctx)
 
   for (let i = 0; i < node.properties.length; i++) {
@@ -1144,6 +1201,7 @@ function processLiteral(
   const text = node.getText(ctx.sourceFile)
   const comp = makeComponent('constant', 'literal', text.slice(0, 20), 0, 1, loc)
   comp.isReachable = reachable
+  comp.outputPins[0].typeShape = literalTypeShape(node)
   addComponent(comp, ctx)
   return comp.outputPins[0].id
 }

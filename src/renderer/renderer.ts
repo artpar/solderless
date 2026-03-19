@@ -14,7 +14,7 @@ import { drawRegister } from './components/register'
 import { drawConnector } from './components/connector'
 import { drawLatch } from './components/latch'
 import { drawIoPort } from './components/io-port'
-import { drawIsoBox, drawPins } from './components/shared'
+import { drawIsoBox, drawTypePins } from './components/shared'
 import { COLORS, getComponentColor } from './colors'
 
 export interface RenderState {
@@ -220,8 +220,10 @@ function drawNamedWire(
   ctx.textBaseline = 'middle'
   ctx.fillText(comp.label.slice(0, 12), Math.round(center.sx), Math.round(center.sy))
 
-  drawPins(ctx, worldX, worldY, worldZ, width, height, depth,
-    comp.inputPins.length, comp.outputPins.length, comp.isReachable)
+  drawTypePins(ctx, worldX, worldY, worldZ, width, height, depth,
+    comp.inputPins, 'input', comp.isReachable)
+  drawTypePins(ctx, worldX, worldY, worldZ, width, height, depth,
+    comp.outputPins, 'output', comp.isReachable)
 }
 
 /** Hit-test: find component at screen position */

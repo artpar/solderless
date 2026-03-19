@@ -3,7 +3,7 @@
 import { PlacedComponent } from '../../layout/placement'
 import { toIsometric } from '../../layout/isometric'
 import { getComponentColor, COLORS } from '../colors'
-import { drawIsoBox, drawPins } from './shared'
+import { drawIsoBox, drawTypePins } from './shared'
 
 export function drawIoPort(
   ctx: CanvasRenderingContext2D,
@@ -31,6 +31,8 @@ export function drawIoPort(
   ctx.textBaseline = 'middle'
   ctx.fillText(comp.label.slice(0, 12), Math.round(center.sx), Math.round(center.sy))
 
-  drawPins(ctx, worldX, worldY, worldZ, width, height, depth,
-    comp.inputPins.length, comp.outputPins.length, comp.isReachable)
+  drawTypePins(ctx, worldX, worldY, worldZ, width, height, depth,
+    comp.inputPins, 'input', comp.isReachable)
+  drawTypePins(ctx, worldX, worldY, worldZ, width, height, depth,
+    comp.outputPins, 'output', comp.isReachable)
 }

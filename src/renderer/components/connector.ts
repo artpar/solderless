@@ -3,7 +3,7 @@
 import { PlacedComponent } from '../../layout/placement'
 import { toIsometric } from '../../layout/isometric'
 import { getComponentColor, COLORS } from '../colors'
-import { drawIsoBox, drawPins } from './shared'
+import { drawIsoBox, drawTypePins } from './shared'
 
 export function drawConnector(
   ctx: CanvasRenderingContext2D,
@@ -47,6 +47,8 @@ export function drawConnector(
   ctx.font = '10px monospace'
   ctx.fillText(label, Math.round(center.sx) + 5, Math.round(center.sy))
 
-  drawPins(ctx, worldX, worldY, worldZ, width, height, depth,
-    comp.inputPins.length, comp.outputPins.length, comp.isReachable)
+  drawTypePins(ctx, worldX, worldY, worldZ, width, height, depth,
+    comp.inputPins, 'input', comp.isReachable)
+  drawTypePins(ctx, worldX, worldY, worldZ, width, height, depth,
+    comp.outputPins, 'output', comp.isReachable)
 }

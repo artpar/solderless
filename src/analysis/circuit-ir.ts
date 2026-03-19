@@ -1,10 +1,25 @@
 // Circuit IR — the central data structure between analysis and rendering
 
+export type TypeTag = 'boolean' | 'number' | 'string' | 'bigint' | 'symbol'
+  | 'null' | 'undefined' | 'void' | 'any' | 'unknown' | 'never'
+  | 'object' | 'array' | 'tuple' | 'union' | 'intersection' | 'enum' | 'function'
+
+export interface TypeShape {
+  tag: TypeTag
+  units: number
+  label: string
+  children?: TypeShape[]
+  childLabels?: string[]
+}
+
+export const UNKNOWN_TYPE: TypeShape = { tag: 'any', units: 4, label: '?' }
+
 export interface Pin {
   id: string
   label: string
   kind: 'input' | 'output' | 'exception'
   componentId: string
+  typeShape: TypeShape
 }
 
 export interface Component {
@@ -86,8 +101,9 @@ export function makePin(
   componentId: string,
   label: string,
   kind: Pin['kind'],
+  typeShape: TypeShape = UNKNOWN_TYPE,
 ): Pin {
-  return { id: genId('pin'), label, kind, componentId }
+  return { id: genId('pin'), label, kind, componentId, typeShape }
 }
 
 export function makeComponent(

@@ -1,7 +1,7 @@
 // Hierarchical placement: recursive bottom-up layout with containment
 
 import { CircuitBoard, Component } from '../analysis/circuit-ir'
-import { CELL_W, CELL_H, getCompSize } from './isometric'
+import { CELL_W, CELL_H, getCompSize, computeCompSize } from './isometric'
 
 export interface PlacedComponent {
   component: Component
@@ -35,8 +35,8 @@ interface ComputedSize {
 const PLATFORM_Z_STEP = 30    // z-offset per nesting level
 const CONTAINER_PAD = 25      // padding inside a container around children
 const PLATFORM_SLAB = 12      // thickness of the platform slab itself
-const COL_GAP = 15            // horizontal gap between siblings
-const ROW_GAP = 15            // vertical gap between rows
+const COL_GAP = 40            // horizontal gap between siblings
+const ROW_GAP = 40            // vertical gap between rows
 
 export function placeComponents(board: CircuitBoard): PlacementResult {
   const components = board.components
@@ -84,12 +84,12 @@ function computeSizesForBoard(board: CircuitBoard, sizes: Map<string, ComputedSi
         maxNestDepth: footprint.maxNestDepth + 1,
       })
     } else {
-      // Leaf component: use fixed size from COMP_SIZES, converted to world units
-      const base = getCompSize(comp.kind)
+      // Leaf component: type-driven sizing (world units)
+      const sz = computeCompSize(comp)
       sizes.set(comp.id, {
-        w: base.w * CELL_W,
-        h: base.h * CELL_H,
-        d: base.d * CELL_H,
+        w: sz.w,
+        h: sz.h,
+        d: sz.d,
         maxNestDepth: 0,
       })
     }

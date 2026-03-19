@@ -3,7 +3,7 @@
 import { PlacedComponent } from '../../layout/placement'
 import { toIsometric } from '../../layout/isometric'
 import { getComponentColor, COLORS } from '../colors'
-import { drawIsoBox } from './shared'
+import { drawIsoBox, drawTypePins } from './shared'
 
 export function drawGate(
   ctx: CanvasRenderingContext2D,
@@ -38,4 +38,9 @@ export function drawGate(
     ctx.fillStyle = COLORS.pinText
     ctx.fillText(comp.label.slice(0, 15), Math.round(center.sx), Math.round(center.sy) + 12)
   }
+
+  drawTypePins(ctx, worldX, worldY, worldZ, width, height, depth,
+    comp.inputPins, 'input', comp.isReachable)
+  drawTypePins(ctx, worldX, worldY, worldZ, width, height, depth,
+    comp.outputPins, 'output', comp.isReachable)
 }

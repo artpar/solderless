@@ -1,3 +1,5 @@
+import { TypeTag } from '../analysis/circuit-ir'
+
 // PCB color palette
 
 export const COLORS = {
@@ -66,6 +68,31 @@ export function getComponentColor(kind: string, isReachable: boolean): string {
     'named-wire': COLORS.namedWire,
   }
   return colorMap[kind] ?? COLORS.compBody
+}
+
+export const TYPE_COLORS: Record<TypeTag, string> = {
+  boolean: '#4488cc',
+  null: '#666688',
+  undefined: '#666688',
+  void: '#555566',
+  symbol: '#8866aa',
+  number: '#cc8844',
+  any: '#777777',
+  unknown: '#777777',
+  enum: '#887744',
+  string: '#44aa66',
+  bigint: '#aa6644',
+  never: '#333333',
+  object: '#557788',
+  array: '#558855',
+  tuple: '#668855',
+  union: '#886655',
+  intersection: '#556688',
+  function: '#446655',
+}
+
+export function getTypeColor(tag: TypeTag): string {
+  return TYPE_COLORS[tag] ?? '#777777'
 }
 
 export function getWireColor(kind: string, isLive: boolean, highlighted: boolean): string {

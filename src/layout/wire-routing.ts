@@ -2,7 +2,7 @@
 
 import { Wire, CircuitBoard } from '../analysis/circuit-ir'
 import { PlacedComponent } from './placement'
-import { Point3D, toIsometric, IsoPoint, CELL_W, CELL_H } from './isometric'
+import { Point3D, toIsometric, IsoPoint, CELL_W, CELL_H, UNIT_SIZE } from './isometric'
 
 export interface RoutedWire {
   wire: Wire
@@ -91,6 +91,9 @@ export function routeWires(
   return { wires: routed }
 }
 
+const TYPE_BLOCK_PROTRUSION = 12
+const TYPE_PIN_GAP = 8
+
 function buildPinPositions(
   placed: PlacedComponent[],
 ): Map<string, { x: number; y: number; z: number }> {
@@ -100,36 +103,44 @@ function buildPinPositions(
     const comp = pc.component
     const pinZ = pc.worldZ + pc.depth  // pins sit on top of the component
 
-    // Input pins on left side
-    for (let i = 0; i < comp.inputPins.length; i++) {
-      const pin = comp.inputPins[i]
-      const yOffset =
-        comp.inputPins.length === 1
-          ? pc.height / 2
-          : (i / (comp.inputPins.length - 1)) * pc.height
-      positions.set(pin.id, {
-        x: pc.worldX,
-        y: pc.worldY + yOffset,
-        z: pinZ,
-      })
-    }
+    // Input pins — type block stacking, centered on component height
+    setPinPositionsForSide(positions, comp.inputPins, pc, pinZ, 'input')
 
-    // Output pins on right side
-    for (let i = 0; i < comp.outputPins.length; i++) {
-      const pin = comp.outputPins[i]
-      const yOffset =
-        comp.outputPins.length === 1
-          ? pc.height / 2
-          : (i / (comp.outputPins.length - 1)) * pc.height
-      positions.set(pin.id, {
-        x: pc.worldX + pc.width,
-        y: pc.worldY + yOffset,
-        z: pinZ,
-      })
-    }
+    // Output pins — type block stacking, centered on component height
+    setPinPositionsForSide(positions, comp.outputPins, pc, pinZ, 'output')
   }
 
   return positions
+}
+
+function setPinPositionsForSide(
+  positions: Map<string, { x: number; y: number; z: number }>,
+  pins: import('../analysis/circuit-ir').Pin[],
+  pc: PlacedComponent,
+  pinZ: number,
+  side: 'input' | 'output',
+): void {
+  if (pins.length === 0) return
+
+  const totalUnits = pins.reduce((sum, p) => sum + p.typeShape.units, 0)
+  const totalHeight = totalUnits * UNIT_SIZE + Math.max(0, pins.length - 1) * TYPE_PIN_GAP
+  const startY = pc.worldY + (pc.height - totalHeight) / 2
+
+  let curY = startY
+  for (const pin of pins) {
+    const blockH = Math.max(pin.typeShape.units * UNIT_SIZE, 4)
+    const yCenter = curY + blockH / 2
+
+    positions.set(pin.id, {
+      x: side === 'input'
+        ? pc.worldX - TYPE_BLOCK_PROTRUSION
+        : pc.worldX + pc.width + TYPE_BLOCK_PROTRUSION,
+      y: yCenter,
+      z: pinZ,
+    })
+
+    curY += blockH + TYPE_PIN_GAP
+  }
 }
 
 function manhattanRoute(src: Point3D, tgt: Point3D): Point3D[] {
