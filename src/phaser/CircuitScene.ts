@@ -73,6 +73,8 @@ export class CircuitScene extends Phaser.Scene {
     }
   }
 
+  private rebuildTimer: number | null = null
+
   update(): void {
     if (!this.alive) return
     const cam = this.cameras.main
@@ -93,6 +95,39 @@ export class CircuitScene extends Phaser.Scene {
       cam.scrollX += dx * cos - dy * sin
       cam.scrollY += dx * sin + dy * cos
     }
+
+    // Q/E — continuous rotation, R/F — continuous tilt
+    const rotSpeed = 60 // degrees per second
+    const tiltSpeed = 25
+    let viewChanged = false
+
+    if (this.pressedKeys.has('q')) {
+      setIsoRotation(getIsoRotation() - rotSpeed * dt)
+      viewChanged = true
+    } else if (this.pressedKeys.has('e')) {
+      setIsoRotation(getIsoRotation() + rotSpeed * dt)
+      viewChanged = true
+    }
+    if (this.pressedKeys.has('r')) {
+      setIsoAngle(getIsoAngle() + tiltSpeed * dt)
+      viewChanged = true
+    } else if (this.pressedKeys.has('f')) {
+      setIsoAngle(getIsoAngle() - tiltSpeed * dt)
+      viewChanged = true
+    }
+
+    if (viewChanged) {
+      this.scheduleRebuild()
+    }
+  }
+
+  /** Throttled rebuild — at most once per 33ms (~30fps) while view is changing */
+  private scheduleRebuild(): void {
+    if (this.rebuildTimer !== null) return
+    this.rebuildTimer = window.setTimeout(() => {
+      this.rebuildTimer = null
+      this.buildScene()
+    }, 33)
   }
 
   private onBoardChanged = (data: { positioned: PositionedBoard | null; board: CircuitBoard | null }) => {
@@ -235,22 +270,11 @@ export class CircuitScene extends Phaser.Scene {
       const key = e.key.toLowerCase()
       this.pressedKeys.add(key)
 
-      // Q/E — rotate view
-      if (key === 'q') {
-        EventBus.emit(ROTATION_CHANGED, getIsoRotation() - 15)
-      } else if (key === 'e') {
-        EventBus.emit(ROTATION_CHANGED, getIsoRotation() + 15)
-      }
-      // R/F — tilt (raise / flatten)
-      else if (key === 'r') {
-        EventBus.emit(ANGLE_CHANGED, getIsoAngle() + 5)
-      } else if (key === 'f') {
-        EventBus.emit(ANGLE_CHANGED, getIsoAngle() - 5)
-      }
-      // Home — reset view
-      else if (key === 'home') {
-        EventBus.emit(ANGLE_CHANGED, 26.57)
-        EventBus.emit(ROTATION_CHANGED, 0)
+      // Home — reset view (discrete)
+      if (key === 'home') {
+        setIsoAngle(26.57)
+        setIsoRotation(0)
+        this.buildScene()
       }
     }
     const onKeyUp = (e: KeyboardEvent) => {
@@ -436,6 +460,10 @@ export class CircuitScene extends Phaser.Scene {
 
   shutdown(): void {
     this.alive = false
+    if (this.rebuildTimer !== null) {
+      clearTimeout(this.rebuildTimer)
+      this.rebuildTimer = null
+    }
     this.nativeListeners.forEach(fn => fn())
     this.nativeListeners = []
     EventBus.off(BOARD_CHANGED, this.onBoardChanged, this)
