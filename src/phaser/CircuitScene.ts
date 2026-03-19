@@ -267,7 +267,9 @@ export class CircuitScene extends Phaser.Scene {
   private resetCamera = () => {
     if (!this.alive) return
     this.cameras.main.rotation = 0
-    this.centerOnBoard()
+    setIsoAngle(26.57)
+    setIsoRotation(0)
+    this.buildScene()
   }
 
   private centerOnBoard(): void {
