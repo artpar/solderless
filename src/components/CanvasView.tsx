@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { PhaserGame } from '../phaser/PhaserGame'
 import { EventBus, RESET_VIEWPORT, ANGLE_CHANGED, ROTATION_CHANGED } from '../phaser/EventBus'
 import { PositionedBoard } from '../layout/layout'
@@ -23,23 +23,56 @@ interface CanvasViewProps {
 function Compass() {
   const [rot, setRot] = useState(getIsoRotation)
   const [tilt, setTilt] = useState(getIsoAngle)
+  const dragging = useRef(false)
+  const lastPos = useRef({ x: 0, y: 0 })
 
   useEffect(() => {
     const onRot = (deg: number) => setRot(deg)
     const onTilt = (deg: number) => setTilt(deg)
+    const onReset = () => { setRot(0); setTilt(26.57) }
     EventBus.on(ROTATION_CHANGED, onRot)
     EventBus.on(ANGLE_CHANGED, onTilt)
-    EventBus.on(RESET_VIEWPORT, () => { setRot(0); setTilt(26.57) })
+    EventBus.on(RESET_VIEWPORT, onReset)
     return () => {
       EventBus.off(ROTATION_CHANGED, onRot)
       EventBus.off(ANGLE_CHANGED, onTilt)
+      EventBus.off(RESET_VIEWPORT, onReset)
     }
   }, [])
 
+  // Drag on compass: horizontal → rotation, vertical → tilt
+  useEffect(() => {
+    const onMove = (e: PointerEvent) => {
+      if (!dragging.current) return
+      const dx = e.clientX - lastPos.current.x
+      const dy = e.clientY - lastPos.current.y
+      lastPos.current = { x: e.clientX, y: e.clientY }
+      if (dx !== 0) EventBus.emit(ROTATION_CHANGED, getIsoRotation() + dx * 2)
+      if (dy !== 0) EventBus.emit(ANGLE_CHANGED, getIsoAngle() - dy * 0.5)
+    }
+    const onUp = () => { dragging.current = false }
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+    return () => {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+    }
+  }, [])
+
+  const onPointerDown = (e: React.PointerEvent) => {
+    dragging.current = true
+    lastPos.current = { x: e.clientX, y: e.clientY }
+    e.preventDefault()
+  }
+
+  const snapTo = (angle: number) => {
+    EventBus.emit(ROTATION_CHANGED, angle)
+  }
+
   // Squash the Y axis based on tilt to give a 3D feel
   const scaleY = Math.max(0.3, 1 - (90 - tilt) / 90 * 0.7)
-  const size = 64
-  const r = 24
+  const size = 72
+  const r = 28
 
   const dirs = [
     { label: 'N', angle: 0, primary: true },
@@ -49,13 +82,15 @@ function Compass() {
   ]
 
   return (
-    <div style={compassStyles.wrapper}>
-      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+    <div style={compassStyles.wrapper} onPointerDown={onPointerDown}>
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} style={{ cursor: 'grab' }}>
         <g transform={`translate(${size / 2}, ${size / 2})`}>
+          {/* Hit area */}
+          <circle cx={0} cy={0} r={r + 4} fill="transparent" />
           {/* Ellipse ring showing tilt */}
           <ellipse cx={0} cy={0} rx={r} ry={r * scaleY}
-            fill="none" stroke="#3a7a4a" strokeWidth={1} opacity={0.5} />
-          {/* Direction labels */}
+            fill="rgba(26,71,42,0.4)" stroke="#3a7a4a" strokeWidth={1} opacity={0.7} />
+          {/* Direction labels — clickable to snap */}
           {dirs.map(d => {
             const a = (d.angle - rot - 90) * Math.PI / 180
             const x = Math.cos(a) * r
@@ -64,9 +99,11 @@ function Compass() {
               <text key={d.label} x={x} y={y + 3.5}
                 textAnchor="middle"
                 fill={d.primary ? '#ff6644' : '#8ab89a'}
-                fontSize={d.primary ? 11 : 9}
+                fontSize={d.primary ? 12 : 10}
                 fontFamily="monospace"
                 fontWeight={d.primary ? 'bold' : 'normal'}
+                style={{ cursor: 'pointer' }}
+                onClick={(e) => { e.stopPropagation(); snapTo(d.angle) }}
               >
                 {d.label}
               </text>
@@ -75,12 +112,12 @@ function Compass() {
           {/* North pointer line */}
           {(() => {
             const a = (-rot - 90) * Math.PI / 180
-            const x = Math.cos(a) * (r - 12)
-            const y = Math.sin(a) * (r - 12) * scaleY
+            const x = Math.cos(a) * (r - 14)
+            const y = Math.sin(a) * (r - 14) * scaleY
             return <line x1={0} y1={0} x2={x} y2={y} stroke="#ff6644" strokeWidth={1.5} opacity={0.6} />
           })()}
           {/* Center dot */}
-          <circle cx={0} cy={0} r={2} fill="#8ab89a" />
+          <circle cx={0} cy={0} r={2.5} fill="#8ab89a" />
         </g>
       </svg>
     </div>
