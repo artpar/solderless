@@ -10,9 +10,9 @@ import { createComponentObject } from './objects/ComponentFactory'
 import { createWireObject } from './objects/WireFactory'
 import { createTooltip, TooltipContainer } from './objects/Tooltip'
 import { diffBoards, applyDiff } from './DiffEngine'
-import { EventBus, BOARD_CHANGED, LAYERS_CHANGED, COMPONENT_HOVERED, COMPONENT_CLICKED, RESET_VIEWPORT } from './EventBus'
+import { EventBus, BOARD_CHANGED, LAYERS_CHANGED, COMPONENT_HOVERED, COMPONENT_CLICKED, RESET_VIEWPORT, ANGLE_CHANGED, ROTATION_CHANGED } from './EventBus'
 import { hexToNum } from './util'
-import { toIsometric } from '../layout/isometric'
+import { toIsometric, setIsoAngle, getIsoAngle, setIsoRotation, getIsoRotation } from '../layout/isometric'
 import { sceneDataRef } from './PhaserGame'
 
 interface Layers {
@@ -38,6 +38,7 @@ export class CircuitScene extends Phaser.Scene {
   private isRotating = false
   private lastPointer = { x: 0, y: 0 }
   private alive = false
+  private pressedKeys = new Set<string>()
 
   constructor() {
     super({ key: 'CircuitScene' })
@@ -51,10 +52,15 @@ export class CircuitScene extends Phaser.Scene {
     // --- Camera controls ---
     this.setupControls()
 
+    // Clean up EventBus listeners when Phaser destroys this scene
+    this.events.on('destroy', () => this.shutdown())
+
     // EventBus listeners for subsequent updates
     EventBus.on(BOARD_CHANGED, this.onBoardChanged, this)
     EventBus.on(LAYERS_CHANGED, this.onLayersChanged, this)
     EventBus.on(RESET_VIEWPORT, this.resetCamera, this)
+    EventBus.on(ANGLE_CHANGED, this.onAngleChanged, this)
+    EventBus.on(ROTATION_CHANGED, this.onRotationChanged, this)
 
     // Camera will be centered on board after buildScene
 
@@ -64,6 +70,28 @@ export class CircuitScene extends Phaser.Scene {
     this.layers = { ...sceneDataRef.layers }
     if (this.positioned) {
       this.buildScene()
+    }
+  }
+
+  update(): void {
+    if (!this.alive) return
+    const cam = this.cameras.main
+    const speed = 300 / cam.zoom
+    const dt = this.game.loop.delta / 1000
+
+    // WASD / Arrow keys — pan
+    let dx = 0
+    let dy = 0
+    if (this.pressedKeys.has('a') || this.pressedKeys.has('arrowleft')) dx -= speed * dt
+    if (this.pressedKeys.has('d') || this.pressedKeys.has('arrowright')) dx += speed * dt
+    if (this.pressedKeys.has('w') || this.pressedKeys.has('arrowup')) dy -= speed * dt
+    if (this.pressedKeys.has('s') || this.pressedKeys.has('arrowdown')) dy += speed * dt
+
+    if (dx !== 0 || dy !== 0) {
+      const cos = Math.cos(-cam.rotation)
+      const sin = Math.sin(-cam.rotation)
+      cam.scrollX += dx * cos - dy * sin
+      cam.scrollY += dx * sin + dy * cos
     }
   }
 
@@ -91,6 +119,18 @@ export class CircuitScene extends Phaser.Scene {
     if (!this.alive) return
     this.layers = layers
     this.updateWireVisibility()
+  }
+
+  private onAngleChanged = (degrees: number) => {
+    if (!this.alive) return
+    setIsoAngle(degrees)
+    this.buildScene()
+  }
+
+  private onRotationChanged = (degrees: number) => {
+    if (!this.alive) return
+    setIsoRotation(degrees)
+    this.buildScene()
   }
 
   private nativeListeners: (() => void)[] = []
@@ -186,6 +226,42 @@ export class CircuitScene extends Phaser.Scene {
     const onGestureStart = (e: Event) => e.preventDefault()
     canvas.addEventListener('gesturestart', onGestureStart, { passive: false } as EventListenerOptions)
     this.nativeListeners.push(() => canvas.removeEventListener('gesturestart', onGestureStart))
+
+    // Keyboard shortcuts (skip when typing in inputs)
+    const onKeyDown = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement)?.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
+
+      const key = e.key.toLowerCase()
+      this.pressedKeys.add(key)
+
+      // Q/E — rotate view
+      if (key === 'q') {
+        EventBus.emit(ROTATION_CHANGED, getIsoRotation() - 15)
+      } else if (key === 'e') {
+        EventBus.emit(ROTATION_CHANGED, getIsoRotation() + 15)
+      }
+      // R/F — tilt (raise / flatten)
+      else if (key === 'r') {
+        EventBus.emit(ANGLE_CHANGED, getIsoAngle() + 5)
+      } else if (key === 'f') {
+        EventBus.emit(ANGLE_CHANGED, getIsoAngle() - 5)
+      }
+      // Home — reset view
+      else if (key === 'home') {
+        EventBus.emit(ANGLE_CHANGED, 26.57)
+        EventBus.emit(ROTATION_CHANGED, 0)
+      }
+    }
+    const onKeyUp = (e: KeyboardEvent) => {
+      this.pressedKeys.delete(e.key.toLowerCase())
+    }
+    window.addEventListener('keydown', onKeyDown)
+    window.addEventListener('keyup', onKeyUp)
+    this.nativeListeners.push(() => {
+      window.removeEventListener('keydown', onKeyDown)
+      window.removeEventListener('keyup', onKeyUp)
+    })
   }
 
   private resetCamera = () => {
@@ -363,5 +439,7 @@ export class CircuitScene extends Phaser.Scene {
     EventBus.off(BOARD_CHANGED, this.onBoardChanged, this)
     EventBus.off(LAYERS_CHANGED, this.onLayersChanged, this)
     EventBus.off(RESET_VIEWPORT, this.resetCamera, this)
+    EventBus.off(ANGLE_CHANGED, this.onAngleChanged, this)
+    EventBus.off(ROTATION_CHANGED, this.onRotationChanged, this)
   }
 }

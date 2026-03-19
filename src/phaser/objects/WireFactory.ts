@@ -2,7 +2,7 @@
 
 import Phaser from 'phaser'
 import { RoutedWire } from '../../layout/wire-routing'
-import { IsoPoint } from '../../layout/isometric'
+import { IsoPoint, toIsometric } from '../../layout/isometric'
 import { getWireColor, COLORS } from '../../shared/colors'
 import { hexToNum, drawDashedPath } from '../util'
 
@@ -12,7 +12,8 @@ export function createWireObject(
   highlighted: boolean,
 ): Phaser.GameObjects.Graphics {
   const g = scene.add.graphics()
-  const { wire, points } = routed
+  const { wire } = routed
+  const points = routed.points.map(toIsometric)
   if (points.length < 2) return g
 
   const color = getWireColor(wire.kind, wire.isLive, highlighted)

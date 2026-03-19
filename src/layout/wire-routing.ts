@@ -2,11 +2,11 @@
 
 import { Wire, CircuitBoard } from '../analysis/circuit-ir'
 import { PlacedComponent } from './placement'
-import { Point3D, toIsometric, IsoPoint, CELL_W, CELL_H, UNIT_SIZE } from './isometric'
+import { Point3D, CELL_W, CELL_H, UNIT_SIZE } from './isometric'
 
 export interface RoutedWire {
   wire: Wire
-  points: IsoPoint[] // screen-space path
+  points: Point3D[] // 3D world-space path, projected at render time
   layer: 'data' | 'control' | 'exception'
 }
 
@@ -49,7 +49,7 @@ export function routeWires(
 
     routed.push({
       wire,
-      points: points.map(toIsometric),
+      points,
       layer: wire.kind === 'data' ? 'data' : wire.kind === 'control' ? 'control' : 'exception',
     })
   }
@@ -83,7 +83,7 @@ export function routeWires(
         targetPin: seg.to,
         isLive: true,
       },
-      points: points.map(toIsometric),
+      points,
       layer: 'control',
     })
   }

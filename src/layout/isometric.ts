@@ -18,34 +18,72 @@ export interface IsoPoint {
   sy: number // screen y
 }
 
-// 2:1 isometric projection
-// x-axis goes right-down, y-axis goes left-down, z goes up
-const ISO_ANGLE = Math.atan(0.5) // ~26.57°
-const COS_A = Math.cos(ISO_ANGLE) // ~0.894
-const SIN_A = Math.sin(ISO_ANGLE) // ~0.447
+// Mutable isometric projection — stored on globalThis to survive HMR
+// tilt: 5° ≈ bird's-eye, 27° = standard iso (default), 45° = steep
+// rotation: 0° = default, rotates view around vertical axis
+interface IsoState {
+  tilt: number; cosT: number; sinT: number
+  rot: number; cosR: number; sinR: number
+}
+const g = globalThis as unknown as { __isoState?: IsoState }
+if (!g.__isoState) {
+  const tilt = 26.57
+  const tRad = tilt * Math.PI / 180
+  g.__isoState = { tilt, cosT: Math.cos(tRad), sinT: Math.sin(tRad), rot: 0, cosR: 1, sinR: 0 }
+}
+const isoState = g.__isoState
+
+export function setIsoAngle(degrees: number): void {
+  isoState.tilt = Math.max(5, Math.min(90, degrees))
+  const rad = isoState.tilt * Math.PI / 180
+  isoState.cosT = Math.cos(rad)
+  isoState.sinT = Math.sin(rad)
+}
+
+export function getIsoAngle(): number {
+  return isoState.tilt
+}
+
+export function setIsoRotation(degrees: number): void {
+  isoState.rot = ((degrees % 360) + 360) % 360
+  const rad = isoState.rot * Math.PI / 180
+  isoState.cosR = Math.cos(rad)
+  isoState.sinR = Math.sin(rad)
+}
+
+export function getIsoRotation(): number {
+  return isoState.rot
+}
 
 export function toIsometric(p: Point3D): IsoPoint {
+  // Rotate around z-axis, then project
+  const rx = p.x * isoState.cosR - p.y * isoState.sinR
+  const ry = p.x * isoState.sinR + p.y * isoState.cosR
   return {
-    sx: Math.round((p.x - p.y) * COS_A),
-    sy: Math.round((p.x + p.y) * SIN_A - p.z),
+    sx: Math.round((rx - ry) * isoState.cosT),
+    sy: Math.round((rx + ry) * isoState.sinT - p.z),
   }
 }
 
 export function fromIsometric(screen: IsoPoint, z = 0): Point3D {
-  // Inverse of toIsometric (assumes known z)
   const adjustedSy = screen.sy + z
-  const xPlusY = adjustedSy / SIN_A
-  const xMinusY = screen.sx / COS_A
+  const rx_plus_ry = adjustedSy / isoState.sinT
+  const rx_minus_ry = screen.sx / isoState.cosT
+  const rx = (rx_plus_ry + rx_minus_ry) / 2
+  const ry = (rx_plus_ry - rx_minus_ry) / 2
+  // Inverse rotation
   return {
-    x: (xPlusY + xMinusY) / 2,
-    y: (xPlusY - xMinusY) / 2,
+    x: rx * isoState.cosR + ry * isoState.sinR,
+    y: -rx * isoState.sinR + ry * isoState.cosR,
     z,
   }
 }
 
 /** Isometric depth value — higher = further from camera = draw first */
 export function isoDepth(p: Point3D): number {
-  return p.x + p.y - p.z
+  const rx = p.x * isoState.cosR - p.y * isoState.sinR
+  const ry = p.x * isoState.sinR + p.y * isoState.cosR
+  return (rx + ry) * isoState.sinT - p.z * isoState.cosT
 }
 
 // Grid cell size in world units
