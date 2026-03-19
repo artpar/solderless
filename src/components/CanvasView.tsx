@@ -1,8 +1,16 @@
 import { useCallback } from 'react'
 import { PhaserGame } from '../phaser/PhaserGame'
-import { EventBus, RESET_VIEWPORT } from '../phaser/EventBus'
+import { EventBus, RESET_VIEWPORT, ANGLE_CHANGED, ROTATION_CHANGED } from '../phaser/EventBus'
 import { PositionedBoard } from '../layout/layout'
 import { CircuitBoard } from '../analysis/circuit-ir'
+
+const PRESETS = [
+  { label: 'Iso', tilt: 26.57, rot: 0 },
+  { label: 'Top', tilt: 5, rot: 0 },
+  { label: 'Front', tilt: 26.57, rot: 45 },
+  { label: 'Side', tilt: 26.57, rot: -45 },
+  { label: 'Steep', tilt: 50, rot: 0 },
+] as const
 
 interface CanvasViewProps {
   positioned: PositionedBoard | null
@@ -14,6 +22,11 @@ interface CanvasViewProps {
 export function CanvasView({ positioned, board, layers, error }: CanvasViewProps) {
   const resetViewport = useCallback(() => {
     EventBus.emit(RESET_VIEWPORT)
+  }, [])
+
+  const applyPreset = useCallback((tilt: number, rot: number) => {
+    EventBus.emit(ANGLE_CHANGED, tilt)
+    EventBus.emit(ROTATION_CHANGED, rot)
   }, [])
 
   return (
@@ -35,6 +48,11 @@ export function CanvasView({ positioned, board, layers, error }: CanvasViewProps
         layers={layers}
       />
       <div style={styles.controls}>
+        {PRESETS.map(p => (
+          <button key={p.label} style={styles.presetButton} onClick={() => applyPreset(p.tilt, p.rot)}>
+            {p.label}
+          </button>
+        ))}
         <button style={styles.button} onClick={resetViewport}>
           Reset View
         </button>
@@ -104,6 +122,16 @@ const styles = {
     border: '1px solid #3a7a4a',
     borderRadius: '3px',
     fontSize: '11px',
+    fontFamily: 'monospace',
+    cursor: 'pointer',
+  },
+  presetButton: {
+    padding: '4px 8px',
+    backgroundColor: '#1e4a2e',
+    color: '#99b8a5',
+    border: '1px solid #2a5a3a',
+    borderRadius: '3px',
+    fontSize: '10px',
     fontFamily: 'monospace',
     cursor: 'pointer',
   },
