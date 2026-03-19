@@ -3,12 +3,14 @@
 import { CircuitBoard } from '../analysis/circuit-ir'
 import { placeComponents, PlacementResult } from './placement'
 import { routeWires, RoutingResult, RoutedWire } from './wire-routing'
+import { buildColorContext, ColorContext } from '../shared/semantic-colors'
 
 export interface PositionedBoard {
   board: CircuitBoard
   placement: PlacementResult
   routing: RoutingResult
   subBoards: PositionedBoard[]
+  colorContext: ColorContext
 }
 
 export function layoutBoard(board: CircuitBoard): PositionedBoard {
@@ -34,11 +36,14 @@ export function layoutBoard(board: CircuitBoard): PositionedBoard {
     subBoards.push(layoutBoard(sub))
   }
 
+  const colorContext = buildColorContext(board)
+
   return {
     board,
     placement,
     routing,
     subBoards,
+    colorContext,
   }
 }
 

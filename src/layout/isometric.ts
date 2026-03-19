@@ -101,11 +101,11 @@ export const COMP_SIZES: Record<string, { w: number; h: number; d: number }> = {
   register:   { w: 1.2, h: 0.8, d: 0.4 },
   subcircuit: { w: 2, h: 1.5, d: 0.5 },
   'io-port':  { w: 1, h: 0.6, d: 0.2 },
-  constant:   { w: 0.8, h: 0.6, d: 0.2 },
+  constant:   { w: 0.6, h: 0.5, d: 0.06 },
   connector:  { w: 1, h: 0.6, d: 0.3 },
   comparator: { w: 1, h: 1, d: 0.3 },
   latch:      { w: 1.2, h: 1, d: 0.4 },
-  'named-wire': { w: 1, h: 0.6, d: 0.2 },
+  'named-wire': { w: 0.8, h: 0.5, d: 0.06 },
 }
 
 export function getCompSize(kind: string): { w: number; h: number; d: number } {
@@ -117,10 +117,19 @@ const MIN_H = 40
 const MIN_D = 15
 const PIN_GAP = 8
 
+// Flat component kinds — rendered as surface-level tags, not 3D buildings
+const FLAT_KINDS: Set<string> = new Set(['constant', 'named-wire'])
+
 /** Compute component size in world units based on pin type shapes */
 export function computeCompSize(comp: Component): { w: number; h: number; d: number } {
   const inputUnits = comp.inputPins.reduce((sum, p) => sum + p.typeShape.units, 0)
   const outputUnits = comp.outputPins.reduce((sum, p) => sum + p.typeShape.units, 0)
+
+  // Flat components: thin surface markers, not buildings
+  if (FLAT_KINDS.has(comp.kind)) {
+    const base = getCompSize(comp.kind)
+    return { w: base.w * CELL_W, h: base.h * CELL_H, d: base.d * CELL_H }
+  }
 
   // Check if all pins are unknown type — fall back to fixed sizes
   const allUnknown = [...comp.inputPins, ...comp.outputPins].every(

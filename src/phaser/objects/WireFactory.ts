@@ -4,19 +4,28 @@ import Phaser from 'phaser'
 import { RoutedWire } from '../../layout/wire-routing'
 import { IsoPoint, toIsometric } from '../../layout/isometric'
 import { getWireColor, COLORS } from '../../shared/colors'
-import { hexToNum, drawDashedPath } from '../util'
+import { ColorContext } from '../../shared/semantic-colors'
+import { hexToNum, drawDashedPath, lighten } from '../util'
 
 export function createWireObject(
   scene: Phaser.Scene,
   routed: RoutedWire,
   highlighted: boolean,
+  colorContext?: ColorContext,
 ): Phaser.GameObjects.Graphics {
   const g = scene.add.graphics()
   const { wire } = routed
   const points = routed.points.map(toIsometric)
   if (points.length < 2) return g
 
-  const color = getWireColor(wire.kind, wire.isLive, highlighted)
+  // Scope-colored data wires: use colorContext if available
+  let color: string
+  const scopeColor = colorContext?.wireColor.get(wire.id)
+  if (wire.isLive && wire.kind === 'data' && scopeColor) {
+    color = highlighted ? lighten(scopeColor, 40) : scopeColor
+  } else {
+    color = getWireColor(wire.kind, wire.isLive, highlighted)
+  }
   const colorNum = hexToNum(color)
   const lineWidth = wire.kind === 'control' ? 2.5 : wire.kind === 'exception' ? 2 : 1.5
   const alpha = wire.isLive ? 1 : 0.3

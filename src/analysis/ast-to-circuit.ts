@@ -140,6 +140,16 @@ function processVariableDeclaration(
   comp.inputPins[0].typeShape = shape
   comp.outputPins[0].typeShape = shape
 
+  // If initializer is a function expression/arrow, skip the named-wire wrapper —
+  // use the subcircuit component directly as the variable binding
+  if (decl.initializer && (ts.isArrowFunction(decl.initializer) || ts.isFunctionExpression(decl.initializer))) {
+    const funcPin = processArrowOrFunctionExpr(decl.initializer, ctx, reachable, name)
+    if (funcPin) {
+      registerSymbolPin(decl.name, funcPin, ctx)
+    }
+    return
+  }
+
   addComponent(comp, ctx)
 
   // If there's an initializer, process it and wire to this declaration
@@ -335,6 +345,10 @@ function processIfStatement(
 
   const demux = makeComponent('demux', 'if', 'if', 1, 2, getSourceLoc(node, ctx.sourceFile))
   demux.isReachable = reachable
+  // Condition input is boolean; branch outputs are control flow
+  demux.inputPins[0].typeShape = resolveTypeShape(node.expression, ctx.checker)
+  demux.outputPins[0].typeShape = { tag: 'boolean', units: 1, label: 'true' }
+  demux.outputPins[1].typeShape = { tag: 'boolean', units: 1, label: 'false' }
   addComponent(demux, ctx)
 
   if (condPin) {
@@ -380,6 +394,10 @@ function processIfStatement(
   // Merge point (MUX)
   const mux = makeComponent('mux', 'if-merge', 'merge', 2, 1, getSourceLoc(node, ctx.sourceFile))
   mux.isReachable = reachable
+  // Branch inputs are control flow signals
+  mux.inputPins[0].typeShape = { tag: 'boolean', units: 1, label: 'true' }
+  mux.inputPins[1].typeShape = { tag: 'boolean', units: 1, label: 'false' }
+  mux.outputPins[0].typeShape = { tag: 'void', units: 1, label: 'join' }
   addComponent(mux, ctx)
 
   // Clock from both branches to merge
@@ -532,6 +550,15 @@ function processSwitchStatement(
     loc,
   )
   demux.isReachable = reachable
+  // Resolve switch expression type for input pin
+  demux.inputPins[0].typeShape = resolveTypeShape(node.expression, ctx.checker)
+  // Label each output with case clause text
+  for (let i = 0; i < node.caseBlock.clauses.length; i++) {
+    if (demux.outputPins[i]) {
+      const clause = node.caseBlock.clauses[i]
+      demux.outputPins[i].typeShape = { tag: 'void', units: 1, label: ts.isDefaultClause(clause) ? 'default' : `case` }
+    }
+  }
   addComponent(demux, ctx)
 
   if (exprPin) {
@@ -552,6 +579,8 @@ function processSwitchStatement(
   // Merge
   const mux = makeComponent('mux', 'switch-merge', 'merge', branchEnds.length, 1, loc)
   mux.isReachable = reachable
+  for (const pin of mux.inputPins) pin.typeShape = { tag: 'void', units: 1, label: 'branch' }
+  mux.outputPins[0].typeShape = { tag: 'void', units: 1, label: 'join' }
   addComponent(mux, ctx)
 
   for (const end of branchEnds) {
@@ -888,6 +917,14 @@ function processConditional(
 
   const mux = makeComponent('mux', '?:', '?:', 3, 1, loc)
   mux.isReachable = reachable
+  // Resolve types: condition is boolean, branches carry their expression types
+  mux.inputPins[0].typeShape = resolveTypeShape(node.condition, ctx.checker)
+  mux.inputPins[0].label = 'cond'
+  mux.inputPins[1].typeShape = resolveTypeShape(node.whenTrue, ctx.checker)
+  mux.inputPins[1].label = 'true'
+  mux.inputPins[2].typeShape = resolveTypeShape(node.whenFalse, ctx.checker)
+  mux.inputPins[2].label = 'false'
+  mux.outputPins[0].typeShape = resolveTypeShape(node, ctx.checker)
   addComponent(mux, ctx)
 
   if (condPin) ctx.board.wires.push(makeWire(condPin, mux.inputPins[0].id))
@@ -909,7 +946,7 @@ function processCallExpression(
     'subcircuit',
     'call',
     `${calleeName}()`,
-    node.arguments.length + 1,
+    node.arguments.length,
     2, // return + exception
     loc,
   )
@@ -921,10 +958,11 @@ function processCallExpression(
     comp.outputPins[1].label = 'exception'
   }
 
-  // Resolve argument types
+  // Resolve argument types and labels
   for (let i = 0; i < node.arguments.length; i++) {
-    if (comp.inputPins[i + 1]) {
-      comp.inputPins[i + 1].typeShape = resolveTypeShape(node.arguments[i], ctx.checker)
+    if (comp.inputPins[i]) {
+      comp.inputPins[i].typeShape = resolveTypeShape(node.arguments[i], ctx.checker)
+      comp.inputPins[i].label = node.arguments[i].getText(ctx.sourceFile).slice(0, 12)
     }
   }
   // Resolve return type
@@ -932,17 +970,19 @@ function processCallExpression(
 
   addComponent(comp, ctx)
 
-  // Wire callee
-  const calleePin = processExpression(node.expression, ctx, reachable)
-  if (calleePin) {
-    ctx.board.wires.push(makeWire(calleePin, comp.inputPins[0].id))
+  // Wire callee — control dependency, not a visible argument pin
+  // Create a hidden pin just for wiring (not in comp.inputPins so it won't render)
+  const calleeTargetPin = makePin(comp.id, calleeName, 'input')
+  const calleeExprPin = processExpression(node.expression, ctx, reachable)
+  if (calleeExprPin) {
+    ctx.board.wires.push(makeWire(calleeExprPin, calleeTargetPin.id, 'control'))
   }
 
   // Wire arguments
   for (let i = 0; i < node.arguments.length; i++) {
     const argPin = processExpression(node.arguments[i], ctx, reachable)
-    if (argPin && comp.inputPins[i + 1]) {
-      ctx.board.wires.push(makeWire(argPin, comp.inputPins[i + 1].id))
+    if (argPin && comp.inputPins[i]) {
+      ctx.board.wires.push(makeWire(argPin, comp.inputPins[i].id))
     }
   }
 
@@ -960,19 +1000,21 @@ function processNewExpression(
   const className = node.expression.getText(ctx.sourceFile)
   const args = node.arguments ?? []
 
-  const comp = makeComponent('subcircuit', 'new', `new ${className}`, args.length + 1, 1, loc)
+  const comp = makeComponent('subcircuit', 'new', `new ${className}`, args.length, 1, loc)
   comp.isReachable = reachable
   addComponent(comp, ctx)
 
+  // Wire class reference as control dependency (not a visible argument pin)
+  const classTargetPin = makePin(comp.id, className, 'input')
   const classPin = processExpression(node.expression, ctx, reachable)
   if (classPin) {
-    ctx.board.wires.push(makeWire(classPin, comp.inputPins[0].id))
+    ctx.board.wires.push(makeWire(classPin, classTargetPin.id, 'control'))
   }
 
   for (let i = 0; i < args.length; i++) {
     const argPin = processExpression(args[i], ctx, reachable)
-    if (argPin && comp.inputPins[i + 1]) {
-      ctx.board.wires.push(makeWire(argPin, comp.inputPins[i + 1].id))
+    if (argPin && comp.inputPins[i]) {
+      ctx.board.wires.push(makeWire(argPin, comp.inputPins[i].id))
     }
   }
 
@@ -1046,11 +1088,13 @@ function processArrowOrFunctionExpr(
   node: ts.ArrowFunction | ts.FunctionExpression,
   ctx: BuildContext,
   reachable: boolean,
+  nameOverride?: string,
 ): string | null {
   const loc = getSourceLoc(node, ctx.sourceFile)
-  const name = ts.isFunctionExpression(node) && node.name
-    ? node.name.getText(ctx.sourceFile)
-    : '<arrow>'
+  const name = nameOverride
+    ?? (ts.isFunctionExpression(node) && node.name
+      ? node.name.getText(ctx.sourceFile)
+      : '<arrow>')
 
   const comp = makeComponent('subcircuit', 'function', name, 0, 1, loc)
   comp.isReachable = reachable

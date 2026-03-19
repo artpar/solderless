@@ -7,6 +7,7 @@ import { sortByDepth } from '../shared/z-order'
 import { createComponentObject } from './objects/ComponentFactory'
 import { createWireObject } from './objects/WireFactory'
 import { RoutedWire } from '../layout/wire-routing'
+import { ColorContext } from '../shared/semantic-colors'
 
 /** Stable key for a component across re-analyses */
 function componentKey(pc: PlacedComponent): string {
@@ -93,6 +94,7 @@ export function applyDiff(
   componentObjects: Map<string, Phaser.GameObjects.Container>,
   wireObjects: Phaser.GameObjects.Graphics[],
   layers: { showData: boolean; showClock: boolean; showException: boolean },
+  colorContext?: ColorContext,
 ): void {
   // Remove old wires
   for (const w of wireObjects) {
@@ -123,7 +125,7 @@ export function applyDiff(
       componentObjects.delete(prevId)
     }
 
-    const newObj = createComponentObject(scene, pc)
+    const newObj = createComponentObject(scene, pc, colorContext)
     // Start at slightly offset and fade in
     newObj.setAlpha(0.5)
     scene.tweens.add({
@@ -137,7 +139,7 @@ export function applyDiff(
 
   // Add new components (fade in)
   for (const pc of diff.components.added) {
-    const obj = createComponentObject(scene, pc)
+    const obj = createComponentObject(scene, pc, colorContext)
     obj.setAlpha(0)
     scene.tweens.add({
       targets: obj,
@@ -152,7 +154,7 @@ export function applyDiff(
   for (const pc of diff.components.unchanged) {
     // Check if we already have this one
     if (!componentObjects.has(pc.component.id)) {
-      const obj = createComponentObject(scene, pc)
+      const obj = createComponentObject(scene, pc, colorContext)
       componentObjects.set(pc.component.id, obj)
     }
   }
@@ -171,7 +173,7 @@ export function applyDiff(
 
   // Add new wires
   for (const routed of diff.wires.added) {
-    const g = createWireObject(scene, routed, false)
+    const g = createWireObject(scene, routed, false, colorContext)
     g.setDepth(-500)
 
     // Layer visibility

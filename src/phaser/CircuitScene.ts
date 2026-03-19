@@ -109,7 +109,7 @@ export class CircuitScene extends Phaser.Scene {
 
     if (prevPositioned) {
       const diff = diffBoards(prevPositioned, data.positioned)
-      applyDiff(this, diff, this.componentObjects, this.wireObjects, this.layers)
+      applyDiff(this, diff, this.componentObjects, this.wireObjects, this.layers, data.positioned.colorContext)
     } else {
       this.buildScene()
     }
@@ -336,7 +336,7 @@ export class CircuitScene extends Phaser.Scene {
     // Wires (behind components)
     for (const routed of routing.wires) {
       const highlighted = this.highlightedWireIds.has(routed.wire.id)
-      const g = createWireObject(this, routed, highlighted)
+      const g = createWireObject(this, routed, highlighted, this.positioned.colorContext)
       g.setDepth(-500)
       this.wireObjects.push(g)
     }
@@ -345,7 +345,7 @@ export class CircuitScene extends Phaser.Scene {
     // Components (depth sorted)
     const sorted = sortByDepth(placed)
     sorted.forEach((pc, index) => {
-      const container = createComponentObject(this, pc)
+      const container = createComponentObject(this, pc, this.positioned!.colorContext)
       container.setDepth(index)
 
       container.on('pointerover', () => {
@@ -413,7 +413,7 @@ export class CircuitScene extends Phaser.Scene {
 
     for (const routed of this.positioned.routing.wires) {
       const highlighted = this.highlightedWireIds.has(routed.wire.id)
-      const g = createWireObject(this, routed, highlighted)
+      const g = createWireObject(this, routed, highlighted, this.positioned.colorContext)
       g.setDepth(-500)
       this.wireObjects.push(g)
     }

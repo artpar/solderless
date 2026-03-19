@@ -4,6 +4,7 @@ import Phaser from 'phaser'
 import { PlacedComponent } from '../../layout/placement'
 import { toIsometric } from '../../layout/isometric'
 import { COLORS, getComponentColor } from '../../shared/colors'
+import { ColorContext } from '../../shared/semantic-colors'
 import { drawIsoBoxOnGraphics, getTopFacePoints } from './IsoBox'
 import { drawTypePinsOnGraphics } from './TypePins'
 import { hexToNum, textStyle } from '../util'
@@ -11,35 +12,37 @@ import { hexToNum, textStyle } from '../util'
 export function createComponentObject(
   scene: Phaser.Scene,
   pc: PlacedComponent,
+  colorContext?: ColorContext,
 ): Phaser.GameObjects.Container {
   const { component } = pc
 
   switch (component.kind) {
-    case 'gate': return createGate(scene, pc)
-    case 'mux': return createLabeledBox(scene, pc, 'MUX')
-    case 'demux': return createLabeledBox(scene, pc, 'DEMUX')
-    case 'subcircuit': return createSubcircuit(scene, pc)
-    case 'register': return createRegister(scene, pc)
-    case 'connector': return createConnector(scene, pc)
-    case 'latch': return createLatch(scene, pc)
-    case 'io-port': return createIoPort(scene, pc)
-    case 'constant': return createConstant(scene, pc)
-    case 'comparator': return createComparator(scene, pc)
-    case 'named-wire': return createNamedWire(scene, pc)
-    default: return createGate(scene, pc)
+    case 'gate': return createGate(scene, pc, colorContext)
+    case 'mux': return createLabeledBox(scene, pc, 'MUX', colorContext)
+    case 'demux': return createLabeledBox(scene, pc, 'DEMUX', colorContext)
+    case 'subcircuit': return createSubcircuit(scene, pc, colorContext)
+    case 'register': return createRegister(scene, pc, colorContext)
+    case 'connector': return createConnector(scene, pc, colorContext)
+    case 'latch': return createLatch(scene, pc, colorContext)
+    case 'io-port': return createIoPort(scene, pc, colorContext)
+    case 'constant': return createConstant(scene, pc, colorContext)
+    case 'comparator': return createComparator(scene, pc, colorContext)
+    case 'named-wire': return createNamedWire(scene, pc, colorContext)
+    default: return createGate(scene, pc, colorContext)
   }
 }
 
 // --- Shared helpers ---
 
-function makeContainer(scene: Phaser.Scene, pc: PlacedComponent): {
+function makeContainer(scene: Phaser.Scene, pc: PlacedComponent, colorContext?: ColorContext): {
   container: Phaser.GameObjects.Container
   g: Phaser.GameObjects.Graphics
   color: string
 } {
   const container = scene.add.container(0, 0)
   const g = scene.add.graphics()
-  const color = getComponentColor(pc.component.kind, pc.component.isReachable)
+  const color = colorContext?.componentBodyColor.get(pc.component.id)
+    ?? getComponentColor(pc.component.kind, pc.component.isReachable)
 
   drawIsoBoxOnGraphics(g, pc.worldX, pc.worldY, pc.worldZ,
     pc.width, pc.height, pc.depth, color, pc.component.isReachable)
@@ -97,8 +100,10 @@ function addTypePins(
 
   const inputTexts = drawTypePinsOnGraphics(scene, g, worldX, worldY, worldZ,
     width, height, depth, comp.inputPins, 'input', comp.isReachable)
+  // Filter out exception pins — they are wiring-only, not visual type blocks
+  const visibleOutputPins = comp.outputPins.filter(p => p.kind !== 'exception')
   const outputTexts = drawTypePinsOnGraphics(scene, g, worldX, worldY, worldZ,
-    width, height, depth, comp.outputPins, 'output', comp.isReachable)
+    width, height, depth, visibleOutputPins, 'output', comp.isReachable)
 
   for (const t of [...inputTexts, ...outputTexts]) {
     container.add(t)
@@ -107,8 +112,8 @@ function addTypePins(
 
 // --- Component types ---
 
-function createGate(scene: Phaser.Scene, pc: PlacedComponent): Phaser.GameObjects.Container {
-  const { container, g } = makeContainer(scene, pc)
+function createGate(scene: Phaser.Scene, pc: PlacedComponent, colorContext?: ColorContext): Phaser.GameObjects.Container {
+  const { container, g } = makeContainer(scene, pc, colorContext)
   const { component: comp } = pc
 
   // Operation symbol
@@ -131,8 +136,9 @@ function createLabeledBox(
   scene: Phaser.Scene,
   pc: PlacedComponent,
   mainLabel: string,
+  colorContext?: ColorContext,
 ): Phaser.GameObjects.Container {
-  const { container, g } = makeContainer(scene, pc)
+  const { container, g } = makeContainer(scene, pc, colorContext)
   const { component: comp } = pc
 
   addCenterText(scene, container, pc, mainLabel, {
@@ -146,8 +152,8 @@ function createLabeledBox(
   return container
 }
 
-function createRegister(scene: Phaser.Scene, pc: PlacedComponent): Phaser.GameObjects.Container {
-  const { container, g } = makeContainer(scene, pc)
+function createRegister(scene: Phaser.Scene, pc: PlacedComponent, colorContext?: ColorContext): Phaser.GameObjects.Container {
+  const { container, g } = makeContainer(scene, pc, colorContext)
   const { component: comp } = pc
 
   addCenterText(scene, container, pc, comp.label.slice(0, 12), {
@@ -161,8 +167,8 @@ function createRegister(scene: Phaser.Scene, pc: PlacedComponent): Phaser.GameOb
   return container
 }
 
-function createConnector(scene: Phaser.Scene, pc: PlacedComponent): Phaser.GameObjects.Container {
-  const { container, g } = makeContainer(scene, pc)
+function createConnector(scene: Phaser.Scene, pc: PlacedComponent, colorContext?: ColorContext): Phaser.GameObjects.Container {
+  const { container, g } = makeContainer(scene, pc, colorContext)
   const { component: comp } = pc
 
   let symbol = '\u25CF' // ●
@@ -198,8 +204,8 @@ function createConnector(scene: Phaser.Scene, pc: PlacedComponent): Phaser.GameO
   return container
 }
 
-function createLatch(scene: Phaser.Scene, pc: PlacedComponent): Phaser.GameObjects.Container {
-  const { container, g } = makeContainer(scene, pc)
+function createLatch(scene: Phaser.Scene, pc: PlacedComponent, colorContext?: ColorContext): Phaser.GameObjects.Container {
+  const { container, g } = makeContainer(scene, pc, colorContext)
 
   addCenterText(scene, container, pc, 'AWAIT', {
     font: 'bold', fontSize: '12px', offsetY: -2,
@@ -212,8 +218,8 @@ function createLatch(scene: Phaser.Scene, pc: PlacedComponent): Phaser.GameObjec
   return container
 }
 
-function createIoPort(scene: Phaser.Scene, pc: PlacedComponent): Phaser.GameObjects.Container {
-  const { container, g } = makeContainer(scene, pc)
+function createIoPort(scene: Phaser.Scene, pc: PlacedComponent, colorContext?: ColorContext): Phaser.GameObjects.Container {
+  const { container, g } = makeContainer(scene, pc, colorContext)
 
   addCenterText(scene, container, pc, pc.component.label.slice(0, 12), {
     font: 'bold', fontSize: '10px',
@@ -223,8 +229,8 @@ function createIoPort(scene: Phaser.Scene, pc: PlacedComponent): Phaser.GameObje
   return container
 }
 
-function createConstant(scene: Phaser.Scene, pc: PlacedComponent): Phaser.GameObjects.Container {
-  const { container, g } = makeContainer(scene, pc)
+function createConstant(scene: Phaser.Scene, pc: PlacedComponent, colorContext?: ColorContext): Phaser.GameObjects.Container {
+  const { container, g } = makeContainer(scene, pc, colorContext)
 
   addCenterText(scene, container, pc, pc.component.label.slice(0, 12), {
     fontSize: '10px', color: '#88bb88',
@@ -233,9 +239,9 @@ function createConstant(scene: Phaser.Scene, pc: PlacedComponent): Phaser.GameOb
   return container
 }
 
-function createComparator(scene: Phaser.Scene, pc: PlacedComponent): Phaser.GameObjects.Container {
+function createComparator(scene: Phaser.Scene, pc: PlacedComponent, colorContext?: ColorContext): Phaser.GameObjects.Container {
   // Start with a gate
-  const container = createGate(scene, pc)
+  const container = createGate(scene, pc, colorContext)
 
   // Add diamond decoration on top
   const center = toIsometric({
@@ -259,29 +265,29 @@ function createComparator(scene: Phaser.Scene, pc: PlacedComponent): Phaser.Game
   return container
 }
 
-function createNamedWire(scene: Phaser.Scene, pc: PlacedComponent): Phaser.GameObjects.Container {
-  const { container, g } = makeContainer(scene, pc)
+function createNamedWire(scene: Phaser.Scene, pc: PlacedComponent, colorContext?: ColorContext): Phaser.GameObjects.Container {
+  const { container, g } = makeContainer(scene, pc, colorContext)
 
   addCenterText(scene, container, pc, pc.component.label.slice(0, 12), {
     font: 'bold', fontSize: '10px', color: COLORS.dataWire,
   })
 
-  addTypePins(scene, container, g, pc)
   return container
 }
 
-function createSubcircuit(scene: Phaser.Scene, pc: PlacedComponent): Phaser.GameObjects.Container {
+function createSubcircuit(scene: Phaser.Scene, pc: PlacedComponent, colorContext?: ColorContext): Phaser.GameObjects.Container {
   if (pc.isContainer) {
-    return createPlatform(scene, pc)
+    return createPlatform(scene, pc, colorContext)
   }
-  return createChip(scene, pc)
+  return createChip(scene, pc, colorContext)
 }
 
-function createPlatform(scene: Phaser.Scene, pc: PlacedComponent): Phaser.GameObjects.Container {
+function createPlatform(scene: Phaser.Scene, pc: PlacedComponent, colorContext?: ColorContext): Phaser.GameObjects.Container {
   const container = scene.add.container(0, 0)
   const g = scene.add.graphics()
   const { component: comp, worldX, worldY, worldZ, width, height, platformDepth } = pc
-  const color = getComponentColor(comp.kind, comp.isReachable)
+  const color = colorContext?.componentBodyColor.get(comp.id)
+    ?? getComponentColor(comp.kind, comp.isReachable)
 
   drawIsoBoxOnGraphics(g, worldX, worldY, worldZ, width, height, platformDepth, color, comp.isReachable)
   container.add(g)
@@ -322,8 +328,8 @@ function createPlatform(scene: Phaser.Scene, pc: PlacedComponent): Phaser.GameOb
   return container
 }
 
-function createChip(scene: Phaser.Scene, pc: PlacedComponent): Phaser.GameObjects.Container {
-  const { container, g } = makeContainer(scene, pc)
+function createChip(scene: Phaser.Scene, pc: PlacedComponent, colorContext?: ColorContext): Phaser.GameObjects.Container {
+  const { container, g } = makeContainer(scene, pc, colorContext)
   const { component: comp, worldX, worldY, worldZ, width, depth } = pc
 
   // IC notch
