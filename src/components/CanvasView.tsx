@@ -1,5 +1,6 @@
-import { useViewport } from '../hooks/useViewport'
-import { useCanvasRenderer } from '../hooks/useCanvasRenderer'
+import { useCallback } from 'react'
+import { PhaserGame } from '../phaser/PhaserGame'
+import { EventBus, RESET_VIEWPORT } from '../phaser/EventBus'
 import { PositionedBoard } from '../layout/layout'
 import { CircuitBoard } from '../analysis/circuit-ir'
 
@@ -11,20 +12,9 @@ interface CanvasViewProps {
 }
 
 export function CanvasView({ positioned, board, layers, error }: CanvasViewProps) {
-  const { viewport, onMouseDown, onMouseMove, onMouseUp, onWheel, resetViewport } =
-    useViewport()
-
-  const { canvasRef, onCanvasMouseMove, onCanvasClick } = useCanvasRenderer(
-    positioned,
-    board,
-    viewport,
-    layers,
-  )
-
-  const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    onMouseMove(e)
-    onCanvasMouseMove(e)
-  }
+  const resetViewport = useCallback(() => {
+    EventBus.emit(RESET_VIEWPORT)
+  }, [])
 
   return (
     <div style={styles.container}>
@@ -39,23 +29,15 @@ export function CanvasView({ positioned, board, layers, error }: CanvasViewProps
           Enter some code to see the circuit board
         </div>
       )}
-      <canvas
-        ref={canvasRef}
-        style={styles.canvas}
-        onMouseDown={onMouseDown}
-        onMouseMove={handleMouseMove}
-        onMouseUp={onMouseUp}
-        onMouseLeave={onMouseUp}
-        onWheel={onWheel}
-        onClick={onCanvasClick}
+      <PhaserGame
+        positioned={positioned}
+        board={board}
+        layers={layers}
       />
       <div style={styles.controls}>
         <button style={styles.button} onClick={resetViewport}>
           Reset View
         </button>
-        <span style={styles.zoomLabel}>
-          {Math.round(viewport.zoom * 100)}%
-        </span>
       </div>
     </div>
   )
@@ -67,11 +49,6 @@ const styles = {
     height: '100%',
     backgroundColor: '#1a472a',
     overflow: 'hidden',
-  },
-  canvas: {
-    width: '100%',
-    height: '100%',
-    cursor: 'grab',
   },
   error: {
     position: 'absolute' as const,
@@ -109,6 +86,7 @@ const styles = {
     color: '#5a8a6a',
     fontSize: '14px',
     fontFamily: 'monospace',
+    zIndex: 5,
   },
   controls: {
     position: 'absolute' as const,
@@ -117,6 +95,7 @@ const styles = {
     display: 'flex',
     alignItems: 'center',
     gap: '8px',
+    zIndex: 10,
   },
   button: {
     padding: '4px 10px',
@@ -127,10 +106,5 @@ const styles = {
     fontSize: '11px',
     fontFamily: 'monospace',
     cursor: 'pointer',
-  },
-  zoomLabel: {
-    color: '#7a9a8a',
-    fontSize: '11px',
-    fontFamily: 'monospace',
   },
 }

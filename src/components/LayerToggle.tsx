@@ -1,4 +1,4 @@
-import { COLORS } from '../renderer/colors'
+import { COLORS } from '../shared/colors'
 
 interface LayerToggleProps {
   showData: boolean

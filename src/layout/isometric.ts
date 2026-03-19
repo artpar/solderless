@@ -26,8 +26,8 @@ const SIN_A = Math.sin(ISO_ANGLE) // ~0.447
 
 export function toIsometric(p: Point3D): IsoPoint {
   return {
-    sx: (p.x - p.y) * COS_A,
-    sy: (p.x + p.y) * SIN_A - p.z,
+    sx: Math.round((p.x - p.y) * COS_A),
+    sy: Math.round((p.x + p.y) * SIN_A - p.z),
   }
 }
 

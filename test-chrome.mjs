@@ -18,9 +18,21 @@ page.on('pageerror', err => {
 })
 
 await page.goto('http://localhost:5199', { waitUntil: 'networkidle0', timeout: 15000 })
-await new Promise(r => setTimeout(r, 2000))
+await new Promise(r => setTimeout(r, 3000))
 
-// Read chrome-connect source files
+// Take initial screenshot — shows default code rendered via Phaser
+await page.screenshot({ path: '/tmp/ast-map-phaser-default.png', fullPage: false })
+console.log('Saved default view to /tmp/ast-map-phaser-default.png')
+
+// Check for Phaser canvas
+const canvasInfo = await page.evaluate(() => {
+  const canvas = document.querySelector('canvas')
+  if (!canvas) return null
+  return { width: canvas.width, height: canvas.height }
+})
+console.log('Canvas:', canvasInfo)
+
+// Read chrome-connect source files for project test
 const projectDir = '/Users/artpar/workspace/code/insidious/chrome-connect/src'
 const EXTS = ['.ts', '.tsx', '.js', '.jsx']
 const SKIP = ['node_modules', '.git', 'dist', 'build', '__tests__']
@@ -42,59 +54,37 @@ function readDir(dir, prefix = '') {
   return files
 }
 
-const files = readDir(projectDir)
-console.log(`Loaded ${files.length} source files`)
+let files
+try {
+  files = readDir(projectDir)
+  console.log(`Loaded ${files.length} source files`)
+} catch (e) {
+  console.log('Project dir not found, skipping project test')
+  files = null
+}
 
-// Render zoomed into a corner to see labels
-await page.evaluate(async (filesJson) => {
-  const { buildProjectCircuit } = await import('/src/analysis/project-circuit.ts')
-  const { layoutBoard } = await import('/src/layout/layout.ts')
-  const { render, createDefaultRenderState } = await import('/src/renderer/renderer.ts')
+// Test project rendering via the analysis pipeline + EventBus
+if (files) {
+  await page.evaluate(async (filesJson) => {
+    const { buildProjectCircuit } = await import('/src/analysis/project-circuit.ts')
+    const { layoutBoard } = await import('/src/layout/layout.ts')
+    const { EventBus } = await import('/src/phaser/EventBus.ts')
+    const { sceneDataRef } = await import('/src/phaser/PhaserGame.tsx')
 
-  const files = JSON.parse(filesJson)
-  const board = buildProjectCircuit(files, 'chrome-connect')
-  const positioned = layoutBoard(board)
+    const files = JSON.parse(filesJson)
+    const board = buildProjectCircuit(files, 'chrome-connect')
+    const positioned = layoutBoard(board)
 
-  const canvas = document.querySelector('canvas')
-  if (canvas) {
-    // Zoom to show a portion with readable labels
-    const state = {
-      ...createDefaultRenderState(),
-      zoom: 0.6,
-      panX: -200,
-      panY: -50,
-    }
-    render(canvas, positioned, state)
-  }
-}, JSON.stringify(files))
+    // Push data through the shared ref + EventBus
+    sceneDataRef.positioned = positioned
+    sceneDataRef.board = board
+    EventBus.emit('board-changed', { positioned, board })
+  }, JSON.stringify(files))
 
-await new Promise(r => setTimeout(r, 1000))
-await page.screenshot({ path: '/tmp/ast-map-project-zoom.png', fullPage: false })
-
-// Also take a zoomed-in detail shot
-await page.evaluate(async (filesJson) => {
-  const { buildProjectCircuit } = await import('/src/analysis/project-circuit.ts')
-  const { layoutBoard } = await import('/src/layout/layout.ts')
-  const { render, createDefaultRenderState } = await import('/src/renderer/renderer.ts')
-
-  const files = JSON.parse(filesJson)
-  const board = buildProjectCircuit(files, 'chrome-connect')
-  const positioned = layoutBoard(board)
-
-  const canvas = document.querySelector('canvas')
-  if (canvas) {
-    const state = {
-      ...createDefaultRenderState(),
-      zoom: 1.5,
-      panX: -400,
-      panY: 100,
-    }
-    render(canvas, positioned, state)
-  }
-}, JSON.stringify(files))
-
-await new Promise(r => setTimeout(r, 500))
-await page.screenshot({ path: '/tmp/ast-map-project-detail.png', fullPage: false })
+  await new Promise(r => setTimeout(r, 3000))
+  await page.screenshot({ path: '/tmp/ast-map-project-phaser.png', fullPage: false })
+  console.log('Saved project view to /tmp/ast-map-project-phaser.png')
+}
 
 console.log('\n=== CONSOLE LOGS ===')
 for (const log of consoleLogs) console.log(log)
