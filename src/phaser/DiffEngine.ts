@@ -168,13 +168,16 @@ export function applyDiff(
   const sorted = sortByDepth(allPcs)
   sorted.forEach((pc, index) => {
     const obj = componentObjects.get(pc.component.id)
-    if (obj) obj.setDepth(index)
+    if (obj) obj.setDepth(pc.worldZ * 1000 + index)
   })
 
   // Add new wires
   for (const routed of diff.wires.added) {
     const g = createWireObject(scene, routed, false, colorContext)
-    g.setDepth(-500)
+    const NESTING_STEP = 30
+    const rawZ = routed.points[0]?.z ?? 0
+    const nestingZ = Math.floor(rawZ / NESTING_STEP) * NESTING_STEP
+    g.setDepth(nestingZ * 1000 - 1)
 
     // Layer visibility
     const visible =

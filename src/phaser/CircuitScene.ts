@@ -10,7 +10,7 @@ import { createComponentObject } from './objects/ComponentFactory'
 import { createWireObject } from './objects/WireFactory'
 import { createTooltip, TooltipContainer } from './objects/Tooltip'
 import { diffBoards, applyDiff } from './DiffEngine'
-import { EventBus, BOARD_CHANGED, LAYERS_CHANGED, COMPONENT_HOVERED, COMPONENT_CLICKED, RESET_VIEWPORT, ANGLE_CHANGED, ROTATION_CHANGED } from './EventBus'
+import { EventBus, BOARD_CHANGED, LAYERS_CHANGED, COMPONENT_HOVERED, COMPONENT_CLICKED, TOGGLE_COLLAPSE, RESET_VIEWPORT, ANGLE_CHANGED, ROTATION_CHANGED } from './EventBus'
 import { hexToNum } from './util'
 import { toIsometric, setIsoAngle, getIsoAngle, setIsoRotation, getIsoRotation } from '../layout/isometric'
 import { sceneDataRef } from './PhaserGame'
@@ -117,16 +117,16 @@ export class CircuitScene extends Phaser.Scene {
     }
 
     if (viewChanged) {
-      this.scheduleRebuild()
+      this.scheduleRebuild(true)
     }
   }
 
   /** Throttled rebuild — at most once per 33ms (~30fps) while view is changing */
-  private scheduleRebuild(): void {
+  private scheduleRebuild(preserveCamera = false): void {
     if (this.rebuildTimer !== null) return
     this.rebuildTimer = window.setTimeout(() => {
       this.rebuildTimer = null
-      this.buildScene()
+      this.buildScene(preserveCamera)
     }, 33)
   }
 
@@ -159,13 +159,13 @@ export class CircuitScene extends Phaser.Scene {
   private onAngleChanged = (degrees: number) => {
     if (!this.alive) return
     setIsoAngle(degrees)
-    this.buildScene()
+    this.buildScene(true)
   }
 
   private onRotationChanged = (degrees: number) => {
     if (!this.alive) return
     setIsoRotation(degrees)
-    this.buildScene()
+    this.buildScene(true)
   }
 
   private nativeListeners: (() => void)[] = []
@@ -345,7 +345,7 @@ export class CircuitScene extends Phaser.Scene {
     this.tooltip = null
   }
 
-  buildScene(): void {
+  buildScene(preserveCamera = false): void {
     if (!this.alive) return
     this.clearScene()
     if (!this.positioned) return
@@ -361,7 +361,10 @@ export class CircuitScene extends Phaser.Scene {
     for (const routed of routing.wires) {
       const highlighted = this.highlightedWireIds.has(routed.wire.id)
       const g = createWireObject(this, routed, highlighted, this.positioned.colorContext)
-      g.setDepth(-500)
+      const NESTING_STEP = 30
+      const rawZ = routed.points[0]?.z ?? 0
+      const nestingZ = Math.floor(rawZ / NESTING_STEP) * NESTING_STEP
+      g.setDepth(nestingZ * 1000 - 1)
       this.wireObjects.push(g)
     }
     this.updateWireVisibility()
@@ -370,7 +373,7 @@ export class CircuitScene extends Phaser.Scene {
     const sorted = sortByDepth(placed)
     sorted.forEach((pc, index) => {
       const container = createComponentObject(this, pc, this.positioned!.colorContext)
-      container.setDepth(index)
+      container.setDepth(pc.worldZ * 1000 + index)
 
       container.on('pointerover', () => {
         this.highlightComponent(pc.component.id)
@@ -381,6 +384,10 @@ export class CircuitScene extends Phaser.Scene {
         EventBus.emit(COMPONENT_HOVERED, null)
       })
       container.on('pointerdown', () => {
+        // Toggle collapse on subcircuit click
+        if (pc.component.kind === 'subcircuit' && pc.component.subCircuit) {
+          EventBus.emit(TOGGLE_COLLAPSE, pc.component.id)
+        }
         EventBus.emit(COMPONENT_CLICKED, pc.component.id)
       })
 
@@ -390,8 +397,8 @@ export class CircuitScene extends Phaser.Scene {
     // Tooltip
     this.tooltip = createTooltip(this)
 
-    // Center camera on board
-    this.centerOnBoard()
+    // Center camera on board (skip when just rotating/tilting)
+    if (!preserveCamera) this.centerOnBoard()
   }
 
   highlightComponent(id: string): void {
@@ -438,7 +445,10 @@ export class CircuitScene extends Phaser.Scene {
     for (const routed of this.positioned.routing.wires) {
       const highlighted = this.highlightedWireIds.has(routed.wire.id)
       const g = createWireObject(this, routed, highlighted, this.positioned.colorContext)
-      g.setDepth(-500)
+      const NESTING_STEP = 30
+      const rawZ = routed.points[0]?.z ?? 0
+      const nestingZ = Math.floor(rawZ / NESTING_STEP) * NESTING_STEP
+      g.setDepth(nestingZ * 1000 - 1)
       this.wireObjects.push(g)
     }
     this.updateWireVisibility()
