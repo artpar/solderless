@@ -5,7 +5,7 @@ import { RoutedWire } from '../../layout/wire-routing'
 import { IsoPoint, toIsometric } from '../../layout/isometric'
 import { getWireColor, COLORS } from '../../shared/colors'
 import { ColorContext } from '../../shared/semantic-colors'
-import { hexToNum, drawDashedPath, lighten } from '../util'
+import { hexToNum, drawDashedPath, lighten, textStyle } from '../util'
 
 export function createWireObject(
   scene: Phaser.Scene,
@@ -53,6 +53,29 @@ export function createWireObject(
     const last = points[points.length - 1]
     g.fillStyle(hexToNum(COLORS.deadWire), alpha)
     g.fillCircle(last.sx, last.sy, 3)
+  }
+
+  // Bundle label for trunk wires
+  if (routed.bundleCount && routed.bundleCount > 1 && routed.bundleLabel) {
+    // Draw thicker trunk line
+    g.lineStyle(drawWidth + 2, colorNum, alpha * 0.5)
+    drawWirePath(g, points, 'data')
+
+    // Place label at midpoint of wire path
+    const midIdx = Math.floor(points.length / 2)
+    const midPt = points[Math.min(midIdx, points.length - 1)]
+    const label = scene.add.text(
+      midPt.sx, midPt.sy - 10,
+      routed.bundleLabel,
+      textStyle({
+        fontSize: '9px',
+        color: '#88bbaa',
+        backgroundColor: '#1a472a',
+      }),
+    )
+    label.setOrigin(0.5, 0.5)
+    // Destroy label when the graphics object is destroyed
+    g.on('destroy', () => label.destroy())
   }
 
   return g
