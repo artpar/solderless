@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useRef } from 'react'
 import { CodeEditor } from './components/CodeEditor'
 import { CanvasView } from './components/CanvasView'
 import { LayerToggle } from './components/LayerToggle'
@@ -86,9 +86,33 @@ export default function App() {
     setView({ kind: 'single', code: CodeEditor.DEFAULT_CODE, fileName: 'Source Code' })
   }, [])
 
+  const [sidePaneWidth, setSidePaneWidth] = useState(400)
+  const dragging = useRef(false)
+
+  const onResizeStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    dragging.current = true
+    document.body.style.userSelect = 'none'
+    document.body.style.cursor = 'col-resize'
+    const onMove = (ev: MouseEvent) => {
+      if (!dragging.current) return
+      const w = Math.max(200, Math.min(ev.clientX, window.innerWidth - 200))
+      setSidePaneWidth(w)
+    }
+    const onUp = () => {
+      dragging.current = false
+      document.body.style.userSelect = ''
+      document.body.style.cursor = ''
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+  }, [])
+
   return (
     <div style={styles.app}>
-      <div style={styles.sidePane}>
+      <div style={{ ...styles.sidePane, width: sidePaneWidth }}>
         {view.kind === 'single' ? (
           <CodeEditor
             value={view.code}
@@ -129,6 +153,7 @@ export default function App() {
           </button>
         )}
       </div>
+      <div style={styles.resizeHandle} onMouseDown={onResizeStart} />
       <div style={styles.canvasPane}>
         <CanvasView
           positioned={activePositioned}
@@ -158,12 +183,17 @@ const styles = {
     backgroundColor: '#1a1a1a',
   },
   sidePane: {
-    width: '35%',
-    minWidth: '300px',
-    maxWidth: '500px',
+    flexShrink: 0,
     height: '100%',
     display: 'flex',
     flexDirection: 'column' as const,
+  },
+  resizeHandle: {
+    width: 5,
+    cursor: 'col-resize',
+    backgroundColor: '#333',
+    flexShrink: 0,
+    zIndex: 10,
   },
   canvasPane: {
     flex: 1,
