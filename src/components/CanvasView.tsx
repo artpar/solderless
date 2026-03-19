@@ -1,8 +1,9 @@
-import { useCallback } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { PhaserGame } from '../phaser/PhaserGame'
 import { EventBus, RESET_VIEWPORT, ANGLE_CHANGED, ROTATION_CHANGED } from '../phaser/EventBus'
 import { PositionedBoard } from '../layout/layout'
 import { CircuitBoard } from '../analysis/circuit-ir'
+import { getIsoRotation, getIsoAngle } from '../layout/isometric'
 
 const PRESETS = [
   { label: 'Iso', tilt: 26.57, rot: 0 },
@@ -17,6 +18,73 @@ interface CanvasViewProps {
   board: CircuitBoard | null
   layers: { showData: boolean; showClock: boolean; showException: boolean }
   error: string | null
+}
+
+function Compass() {
+  const [rot, setRot] = useState(getIsoRotation)
+  const [tilt, setTilt] = useState(getIsoAngle)
+
+  useEffect(() => {
+    const onRot = (deg: number) => setRot(deg)
+    const onTilt = (deg: number) => setTilt(deg)
+    EventBus.on(ROTATION_CHANGED, onRot)
+    EventBus.on(ANGLE_CHANGED, onTilt)
+    EventBus.on(RESET_VIEWPORT, () => { setRot(0); setTilt(26.57) })
+    return () => {
+      EventBus.off(ROTATION_CHANGED, onRot)
+      EventBus.off(ANGLE_CHANGED, onTilt)
+    }
+  }, [])
+
+  // Squash the Y axis based on tilt to give a 3D feel
+  const scaleY = Math.max(0.3, 1 - (90 - tilt) / 90 * 0.7)
+  const size = 64
+  const r = 24
+
+  const dirs = [
+    { label: 'N', angle: 0, primary: true },
+    { label: 'E', angle: 90, primary: false },
+    { label: 'S', angle: 180, primary: false },
+    { label: 'W', angle: 270, primary: false },
+  ]
+
+  return (
+    <div style={compassStyles.wrapper}>
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+        <g transform={`translate(${size / 2}, ${size / 2})`}>
+          {/* Ellipse ring showing tilt */}
+          <ellipse cx={0} cy={0} rx={r} ry={r * scaleY}
+            fill="none" stroke="#3a7a4a" strokeWidth={1} opacity={0.5} />
+          {/* Direction labels */}
+          {dirs.map(d => {
+            const a = (d.angle - rot - 90) * Math.PI / 180
+            const x = Math.cos(a) * r
+            const y = Math.sin(a) * r * scaleY
+            return (
+              <text key={d.label} x={x} y={y + 3.5}
+                textAnchor="middle"
+                fill={d.primary ? '#ff6644' : '#8ab89a'}
+                fontSize={d.primary ? 11 : 9}
+                fontFamily="monospace"
+                fontWeight={d.primary ? 'bold' : 'normal'}
+              >
+                {d.label}
+              </text>
+            )
+          })}
+          {/* North pointer line */}
+          {(() => {
+            const a = (-rot - 90) * Math.PI / 180
+            const x = Math.cos(a) * (r - 12)
+            const y = Math.sin(a) * (r - 12) * scaleY
+            return <line x1={0} y1={0} x2={x} y2={y} stroke="#ff6644" strokeWidth={1.5} opacity={0.6} />
+          })()}
+          {/* Center dot */}
+          <circle cx={0} cy={0} r={2} fill="#8ab89a" />
+        </g>
+      </svg>
+    </div>
+  )
 }
 
 export function CanvasView({ positioned, board, layers, error }: CanvasViewProps) {
@@ -47,6 +115,7 @@ export function CanvasView({ positioned, board, layers, error }: CanvasViewProps
         board={board}
         layers={layers}
       />
+      <Compass />
       <div style={styles.controls}>
         {PRESETS.map(p => (
           <button key={p.label} style={styles.presetButton} onClick={() => applyPreset(p.tilt, p.rot)}>
@@ -134,5 +203,15 @@ const styles = {
     fontSize: '10px',
     fontFamily: 'monospace',
     cursor: 'pointer',
+  },
+}
+
+const compassStyles = {
+  wrapper: {
+    position: 'absolute' as const,
+    top: '10px',
+    right: '10px',
+    zIndex: 10,
+    opacity: 0.85,
   },
 }
