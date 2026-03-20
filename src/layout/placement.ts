@@ -136,7 +136,7 @@ function placeByDependencyLevels(
 
     for (const comp of comps) {
       const size = sizes.get(comp.id) ?? { w: CELL_W, h: CELL_H, d: CELL_H * 0.3, maxNestDepth: 0 }
-      const isContainer = !!(comp.subCircuit && comp.subCircuit.components.length > 0 && !comp.collapsed)
+      const isContainer = !!(comp.subCircuit && comp.subCircuit.components.length > 0)
 
       const pc: PlacedComponent = {
         component: comp,
@@ -175,7 +175,7 @@ function placeByDependencyLevels(
 /** Recursively compute sizes for all components in a board hierarchy */
 function computeSizesForBoard(board: CircuitBoard, sizes: Map<string, ComputedSize>): void {
   for (const comp of board.components) {
-    if (comp.subCircuit && comp.subCircuit.components.length > 0 && !comp.collapsed) {
+    if (comp.subCircuit && comp.subCircuit.components.length > 0) {
       // Compute children first (bottom-up)
       computeSizesForBoard(comp.subCircuit, sizes)
 
@@ -193,7 +193,7 @@ function computeSizesForBoard(board: CircuitBoard, sizes: Map<string, ComputedSi
         maxNestDepth: footprint.maxNestDepth + 1,
       })
     } else {
-      // Leaf component or collapsed container: chip-size
+      // Leaf component (no children): chip-size
       const sz = computeCompSize(comp)
       sizes.set(comp.id, {
         w: sz.w,
@@ -344,7 +344,7 @@ function placeByColumns(
 
     for (const comp of comps) {
       const size = sizes.get(comp.id) ?? { w: CELL_W, h: CELL_H, d: CELL_H * 0.3, maxNestDepth: 0 }
-      const isContainer = !!(comp.subCircuit && comp.subCircuit.components.length > 0 && !comp.collapsed)
+      const isContainer = !!(comp.subCircuit && comp.subCircuit.components.length > 0)
 
       // Center component horizontally within the column width
       const compX = curX + (colWidth - size.w) / 2

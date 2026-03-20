@@ -54,7 +54,7 @@ function collectSubBoardWires(
   allWires: RoutedWire[],
 ): void {
   for (const comp of board.components) {
-    if (comp.subCircuit && comp.subCircuit.components.length > 0 && !comp.collapsed) {
+    if (comp.subCircuit && comp.subCircuit.components.length > 0) {
       const subRouting = routeWires(comp.subCircuit, placed)
       allWires.push(...subRouting.wires)
       // Recurse into deeper levels

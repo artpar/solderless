@@ -131,9 +131,6 @@ export function buildProjectCircuit(files: ProjectFile[], projectName: string): 
     }
   }
 
-  // Default: collapse all file-level subcircuits in project view
-  setDefaultCollapseState(board, 'project')
-
   return board
 }
 
@@ -428,18 +425,6 @@ function findCommonPrefix(paths: string[]): string {
     }
   }
   return prefix
-}
-
-export function setDefaultCollapseState(board: CircuitBoard, mode: 'project' | 'single'): void {
-  for (const comp of board.components) {
-    if (comp.subCircuit && comp.subCircuit.components.length > 0) {
-      comp.collapsed = mode === 'project'
-      // Recurse: inner subcircuits stay expanded when their parent is expanded
-      if (comp.subCircuit) {
-        setDefaultCollapseState(comp.subCircuit, 'single')
-      }
-    }
-  }
 }
 
 function topologicalSort(

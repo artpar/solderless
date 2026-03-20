@@ -42,7 +42,6 @@ export interface Component {
   outputPins: Pin[]
   sourceLocation: { start: number; end: number; line: number } | null
   isReachable: boolean
-  collapsed: boolean
   isEntryPoint: boolean
   subCircuit?: CircuitBoard
 }
@@ -134,7 +133,6 @@ export function makeComponent(
     outputPins,
     sourceLocation,
     isReachable: true,
-    collapsed: false,
     isEntryPoint: false,
   }
 }

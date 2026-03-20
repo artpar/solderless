@@ -5,8 +5,6 @@ import { LayerToggle } from './components/LayerToggle'
 import { FileTree } from './components/FileTree'
 import { useCircuitAnalysis, useProjectAnalysis } from './hooks/useCircuitAnalysis'
 import { loadProject, ProjectFile, ProjectData } from './analysis/project-loader'
-import { EventBus, TOGGLE_COLLAPSE } from './phaser/EventBus'
-import { CircuitBoard, Component } from './analysis/circuit-ir'
 import { saveRecentProject, getRecentProjects, removeRecentProject, RecentProject } from './storage/project-store'
 
 type ViewMode =
@@ -22,36 +20,21 @@ export default function App() {
   const [showData, setShowData] = useState(true)
   const [showClock, setShowClock] = useState(true)
   const [showException, setShowException] = useState(true)
-  const [layoutVersion, setLayoutVersion] = useState(0)
 
   // Single-file analysis
   const singleCode = view.kind === 'single' ? view.code
     : view.kind === 'project' && view.selectedFile ? view.selectedFile.content
     : ''
-  const singleAnalysis = useCircuitAnalysis(singleCode, layoutVersion)
+  const singleAnalysis = useCircuitAnalysis(singleCode)
 
   // Project-level analysis
   const projectFiles = view.kind === 'project' ? view.project.files : null
   const projectName = view.kind === 'project' ? view.project.name : ''
-  const projectAnalysis = useProjectAnalysis(projectFiles, projectName, layoutVersion)
+  const projectAnalysis = useProjectAnalysis(projectFiles, projectName)
 
   // Show project board when no file is selected, otherwise show file board
   const showProjectView = view.kind === 'project' && view.selectedFile === null
 
-  // Handle collapse toggle from Phaser scene
-  useEffect(() => {
-    const onToggle = (compId: string) => {
-      const board = showProjectView ? projectAnalysis.board : singleAnalysis.board
-      if (!board) return
-      const comp = findComponentById(board, compId)
-      if (comp && comp.subCircuit) {
-        comp.collapsed = !comp.collapsed
-        setLayoutVersion(v => v + 1)
-      }
-    }
-    EventBus.on(TOGGLE_COLLAPSE, onToggle)
-    return () => { EventBus.off(TOGGLE_COLLAPSE, onToggle) }
-  })
   const activeBoard = showProjectView ? projectAnalysis.board : singleAnalysis.board
   const activePositioned = showProjectView ? projectAnalysis.positioned : singleAnalysis.positioned
   const activeError = showProjectView ? projectAnalysis.error : singleAnalysis.error
@@ -247,17 +230,6 @@ export default function App() {
       </div>
     </div>
   )
-}
-
-function findComponentById(board: CircuitBoard, id: string): Component | null {
-  for (const comp of board.components) {
-    if (comp.id === id) return comp
-    if (comp.subCircuit) {
-      const found = findComponentById(comp.subCircuit, id)
-      if (found) return found
-    }
-  }
-  return null
 }
 
 const styles = {

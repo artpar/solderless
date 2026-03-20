@@ -10,7 +10,7 @@ import { createComponentObject } from './objects/ComponentFactory'
 import { createWireObject } from './objects/WireFactory'
 import { createTooltip, TooltipContainer } from './objects/Tooltip'
 import { diffBoards, applyDiff } from './DiffEngine'
-import { EventBus, BOARD_CHANGED, LAYERS_CHANGED, COMPONENT_HOVERED, COMPONENT_CLICKED, TOGGLE_COLLAPSE, RESET_VIEWPORT, ANGLE_CHANGED, ROTATION_CHANGED } from './EventBus'
+import { EventBus, BOARD_CHANGED, LAYERS_CHANGED, COMPONENT_HOVERED, COMPONENT_CLICKED, RESET_VIEWPORT, ANGLE_CHANGED, ROTATION_CHANGED } from './EventBus'
 import { hexToNum } from './util'
 import { toIsometric, setIsoAngle, getIsoAngle, setIsoRotation, getIsoRotation } from '../layout/isometric'
 import { sceneDataRef } from './PhaserGame'
@@ -384,10 +384,6 @@ export class CircuitScene extends Phaser.Scene {
         EventBus.emit(COMPONENT_HOVERED, null)
       })
       container.on('pointerdown', () => {
-        // Toggle collapse on subcircuit click
-        if (pc.component.kind === 'subcircuit' && pc.component.subCircuit) {
-          EventBus.emit(TOGGLE_COLLAPSE, pc.component.id)
-        }
         EventBus.emit(COMPONENT_CLICKED, pc.component.id)
       })
 

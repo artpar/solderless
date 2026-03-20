@@ -276,9 +276,6 @@ function createNamedWire(scene: Phaser.Scene, pc: PlacedComponent, colorContext?
 }
 
 function createSubcircuit(scene: Phaser.Scene, pc: PlacedComponent, colorContext?: ColorContext): Phaser.GameObjects.Container {
-  if (pc.component.collapsed) {
-    return createChip(scene, pc, colorContext)
-  }
   if (pc.isContainer) {
     return createPlatform(scene, pc, colorContext)
   }
@@ -388,14 +385,6 @@ function createChip(scene: Phaser.Scene, pc: PlacedComponent, colorContext?: Col
   addCenterText(scene, container, pc, comp.operation, {
     fontSize: '11px', color: COLORS.pinText, offsetY: 8,
   })
-
-  // Expand/collapse hint
-  if (comp.subCircuit) {
-    const hint = comp.collapsed ? '\u25B6 expand' : '\u25B6 expand'
-    addCenterText(scene, container, pc, hint, {
-      fontSize: '8px', color: comp.isReachable ? '#55aa55' : COLORS.deadComp, offsetY: 18,
-    })
-  }
 
   // Skip type pin blocks for file/directory containers — too many pins create visual noise
   const skipPins = comp.subCircuit && (comp.operation === 'file' || comp.operation === 'directory')

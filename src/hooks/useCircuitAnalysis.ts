@@ -8,7 +8,7 @@ import { buildProjectCircuit } from '../analysis/project-circuit'
 import { PositionedBoard, layoutBoard } from '../layout/layout'
 import { ProjectFile } from '../analysis/project-loader'
 
-export function useCircuitAnalysis(source: string, layoutVersion = 0): {
+export function useCircuitAnalysis(source: string): {
   board: CircuitBoard | null
   positioned: PositionedBoard | null
   error: string | null
@@ -24,7 +24,7 @@ export function useCircuitAnalysis(source: string, layoutVersion = 0): {
     }
 
     try {
-      // Only rebuild the board if source changed; otherwise just relayout
+      // Only rebuild the board if source changed
       if (source !== prevSource.current) {
         boardRef.current = buildCircuit(source)
         prevSource.current = source
@@ -39,10 +39,10 @@ export function useCircuitAnalysis(source: string, layoutVersion = 0): {
         error: e instanceof Error ? e.message : String(e),
       }
     }
-  }, [source, layoutVersion])
+  }, [source])
 }
 
-export function useProjectAnalysis(files: ProjectFile[] | null, projectName: string, layoutVersion = 0): {
+export function useProjectAnalysis(files: ProjectFile[] | null, projectName: string): {
   board: CircuitBoard | null
   positioned: PositionedBoard | null
   error: string | null
@@ -60,7 +60,7 @@ export function useProjectAnalysis(files: ProjectFile[] | null, projectName: str
     }
 
     try {
-      // Only rebuild board if files/name changed; otherwise just relayout
+      // Only rebuild board if files/name changed
       if (files !== prevFiles.current || projectName !== prevName.current) {
         boardRef.current = buildProjectCircuit(files, projectName)
         prevFiles.current = files
@@ -76,5 +76,5 @@ export function useProjectAnalysis(files: ProjectFile[] | null, projectName: str
         error: e instanceof Error ? e.message : String(e),
       }
     }
-  }, [files, projectName, layoutVersion])
+  }, [files, projectName])
 }
