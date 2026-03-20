@@ -17,6 +17,8 @@ export interface PlacedComponent {
   isContainer: boolean
   /** Platform slab thickness for containers */
   platformDepth: number
+  /** ID of the containing parent component (if nested) */
+  parentId?: string
 }
 
 export interface PlacementResult {
@@ -32,11 +34,12 @@ interface ComputedSize {
   maxNestDepth: number  // deepest nesting below this component
 }
 
+const TYPE_BLOCK_PROTRUSION = 12  // matches TypePins.ts and wire-routing.ts
 const PLATFORM_Z_STEP = 30    // z-offset per nesting level
-const CONTAINER_PAD = 25      // padding inside a container around children
+export const CONTAINER_PAD = 25      // padding inside a container around children
 const PLATFORM_SLAB = 12      // thickness of the platform slab itself
 const LEVEL_COL_GAP = 100     // horizontal gap between topo-level columns (room for wire channels)
-const LEVEL_ROW_GAP = 50      // vertical gap between components within a column
+const LEVEL_ROW_GAP = 80      // vertical gap between components within a column
 
 export function placeComponents(board: CircuitBoard): PlacementResult {
   const components = board.components
@@ -154,11 +157,13 @@ function placeByDependencyLevels(
       placed.push(pc)
 
       if (isContainer && comp.subCircuit) {
-        placeByColumns(comp.subCircuit, sizes, placed, curX + CONTAINER_PAD, curY + CONTAINER_PAD, PLATFORM_Z_STEP)
+        placeByColumns(comp.subCircuit, sizes, placed, curX + CONTAINER_PAD, curY + CONTAINER_PAD, PLATFORM_Z_STEP, comp.id)
+        growToFitChildren(pc, placed, sizes)
       }
 
-      maxX = Math.max(maxX, curX + size.w)
-      curX += size.w + PROJECT_COL_GAP
+      maxX = Math.max(maxX, curX + pc.width)
+      rowH = Math.max(rowH, pc.height)
+      curX += pc.width + PROJECT_COL_GAP
     }
 
     maxY = Math.max(maxY, curY + rowH)
@@ -252,7 +257,9 @@ function estimateColumnFootprint(
     let colHeight = 0
     for (const comp of comps) {
       const size = sizes.get(comp.id) ?? { w: CELL_W, h: CELL_H, d: CELL_H * 0.3, maxNestDepth: 0 }
-      colWidth = Math.max(colWidth, size.w)
+      const leftPro = comp.inputPins.length > 0 ? TYPE_BLOCK_PROTRUSION : 0
+      const rightPro = comp.outputPins.length > 0 ? TYPE_BLOCK_PROTRUSION : 0
+      colWidth = Math.max(colWidth, size.w + leftPro + rightPro)
       colHeight += size.h + LEVEL_ROW_GAP
       maxChildD = Math.max(maxChildD, size.d)
       maxNestDepth = Math.max(maxNestDepth, size.maxNestDepth)
@@ -279,6 +286,7 @@ function placeByColumns(
   originX: number,
   originY: number,
   originZ: number,
+  parentId?: string,
 ): { maxX: number; maxY: number } {
   const components = board.components
   if (components.length === 0) return { maxX: originX, maxY: originY }
@@ -325,7 +333,9 @@ function placeByColumns(
     let colHeight = 0
     for (const comp of comps) {
       const size = sizes.get(comp.id) ?? { w: CELL_W, h: CELL_H, d: CELL_H * 0.3, maxNestDepth: 0 }
-      colWidth = Math.max(colWidth, size.w)
+      const leftPro = comp.inputPins.length > 0 ? TYPE_BLOCK_PROTRUSION : 0
+      const rightPro = comp.outputPins.length > 0 ? TYPE_BLOCK_PROTRUSION : 0
+      colWidth = Math.max(colWidth, size.w + leftPro + rightPro)
       colHeight += size.h + LEVEL_ROW_GAP
     }
     colHeight -= LEVEL_ROW_GAP // no trailing gap
@@ -346,8 +356,11 @@ function placeByColumns(
       const size = sizes.get(comp.id) ?? { w: CELL_W, h: CELL_H, d: CELL_H * 0.3, maxNestDepth: 0 }
       const isContainer = !!(comp.subCircuit && comp.subCircuit.components.length > 0)
 
-      // Center component horizontally within the column width
-      const compX = curX + (colWidth - size.w) / 2
+      // Place body so type pin protrusions fit within the column
+      const leftPro = comp.inputPins.length > 0 ? TYPE_BLOCK_PROTRUSION : 0
+      const rightPro = comp.outputPins.length > 0 ? TYPE_BLOCK_PROTRUSION : 0
+      const effectiveW = size.w + leftPro + rightPro
+      const compX = curX + leftPro + (colWidth - effectiveW) / 2
 
       const pc: PlacedComponent = {
         component: comp,
@@ -361,24 +374,63 @@ function placeByColumns(
         depth: size.d,
         isContainer,
         platformDepth: isContainer ? PLATFORM_SLAB : 0,
+        parentId,
       }
       placed.push(pc)
 
       // Recurse into expanded containers
       if (isContainer && comp.subCircuit) {
         placeByColumns(comp.subCircuit, sizes, placed,
-          compX + CONTAINER_PAD, curY + CONTAINER_PAD, originZ + PLATFORM_Z_STEP)
+          compX + CONTAINER_PAD, curY + CONTAINER_PAD, originZ + PLATFORM_Z_STEP, comp.id)
+        growToFitChildren(pc, placed, sizes)
       }
 
-      maxX = Math.max(maxX, compX + size.w)
-      maxY = Math.max(maxY, curY + size.h)
-      curY += size.h + LEVEL_ROW_GAP
+      maxX = Math.max(maxX, pc.worldX + pc.width)
+      maxY = Math.max(maxY, pc.worldY + pc.height)
+      curY += pc.height + LEVEL_ROW_GAP
     }
 
     curX += colWidth + LEVEL_COL_GAP
   }
 
   return { maxX, maxY }
+}
+
+/** Grow a container to fit its actually-placed children */
+function growToFitChildren(
+  pc: PlacedComponent,
+  placed: PlacedComponent[],
+  sizes: Map<string, ComputedSize>,
+): void {
+  let minX = pc.worldX
+  let maxX = pc.worldX
+  let maxY = pc.worldY
+  for (const child of placed) {
+    if (child.parentId === pc.component.id) {
+      const leftPro = child.component.inputPins.length > 0 ? TYPE_BLOCK_PROTRUSION : 0
+      const rightPro = child.component.outputPins.length > 0 ? TYPE_BLOCK_PROTRUSION : 0
+      minX = Math.min(minX, child.worldX - leftPro)
+      maxX = Math.max(maxX, child.worldX + child.width + rightPro)
+      maxY = Math.max(maxY, child.worldY + child.height)
+    }
+  }
+  const leftOverflow = Math.max(0, pc.worldX - minX)
+  const neededW = (maxX - pc.worldX) + CONTAINER_PAD + leftOverflow
+  const neededH = (maxY - pc.worldY) + CONTAINER_PAD
+  if (neededW > pc.width) pc.width = neededW
+  if (neededH > pc.height) pc.height = neededH
+
+  // Update sizes map so parent containers see the grown size
+  const existing = sizes.get(pc.component.id)
+  if (existing) {
+    if (pc.width > existing.w || pc.height > existing.h) {
+      sizes.set(pc.component.id, {
+        ...existing,
+        w: Math.max(existing.w, pc.width),
+        h: Math.max(existing.h, pc.height),
+      })
+    }
+  }
 }
 
 function topoLevels(
