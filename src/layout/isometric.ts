@@ -131,6 +131,12 @@ export function computeCompSize(comp: Component): { w: number; h: number; d: num
     return { w: base.w * CELL_W, h: base.h * CELL_H, d: base.d * CELL_H }
   }
 
+  // Subcircuit chips (file/module level): fixed size, pin blocks are not rendered
+  if (comp.subCircuit) {
+    const base = getCompSize(comp.kind)
+    return { w: base.w * CELL_W, h: base.h * CELL_H, d: base.d * CELL_H }
+  }
+
   // Check if all pins are unknown type — fall back to fixed sizes
   const allUnknown = [...comp.inputPins, ...comp.outputPins].every(
     p => p.typeShape === UNKNOWN_TYPE || p.typeShape.tag === 'any'

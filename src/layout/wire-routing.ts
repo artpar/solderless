@@ -8,6 +8,10 @@ export interface RoutedWire {
   wire: Wire
   points: Point3D[] // 3D world-space path, projected at render time
   layer: 'data' | 'control' | 'exception'
+  /** If this wire is a bundled trunk, how many individual wires it represents */
+  bundleCount?: number
+  /** Label for bundled wires (e.g., "3 imports") */
+  bundleLabel?: string
 }
 
 export interface RoutingResult {
@@ -88,7 +92,77 @@ export function routeWires(
     })
   }
 
-  return { wires: routed }
+  // Bundle cross-container wires that share source and target containers
+  const bundled = bundleCrossContainerWires(routed, placed)
+
+  return { wires: bundled }
+}
+
+/** Group wires between the same pair of top-level containers into bundled trunks */
+function bundleCrossContainerWires(
+  routed: RoutedWire[],
+  placed: PlacedComponent[],
+): RoutedWire[] {
+  // Build pin → container mapping (top-level placed components only)
+  const pinToContainer = new Map<string, string>()
+  for (const pc of placed) {
+    for (const pin of [...pc.component.inputPins, ...pc.component.outputPins]) {
+      pinToContainer.set(pin.id, pc.component.id)
+    }
+  }
+
+  // Group routed wires by (sourceContainer, targetContainer)
+  const bundleGroups = new Map<string, RoutedWire[]>()
+  const unbundled: RoutedWire[] = []
+
+  for (const rw of routed) {
+    const srcContainer = pinToContainer.get(rw.wire.sourcePin)
+    const tgtContainer = pinToContainer.get(rw.wire.targetPin)
+
+    if (srcContainer && tgtContainer && srcContainer !== tgtContainer) {
+      const key = `${srcContainer}:${tgtContainer}`
+      if (!bundleGroups.has(key)) bundleGroups.set(key, [])
+      bundleGroups.get(key)!.push(rw)
+    } else {
+      unbundled.push(rw)
+    }
+  }
+
+  // For groups with 2+ wires, replace with a single trunk wire
+  const result = [...unbundled]
+  for (const [, group] of bundleGroups) {
+    if (group.length <= 1) {
+      result.push(...group)
+      continue
+    }
+
+    // Use the first wire's route as the trunk path (roughly central)
+    // Average the start/end positions for a better trunk route
+    const avgSrcY = group.reduce((s, rw) => s + rw.points[0].y, 0) / group.length
+    const avgTgtY = group.reduce((s, rw) => s + rw.points[rw.points.length - 1].y, 0) / group.length
+    const first = group[0]
+    const last = group[0].points
+    const src = { ...last[0], y: avgSrcY }
+    const tgt = { ...last[last.length - 1], y: avgTgtY }
+    const trunkPoints = manhattanRoute(src, tgt)
+
+    const count = group.length
+    result.push({
+      wire: {
+        id: `bundle_${first.wire.id}`,
+        kind: 'data',
+        sourcePin: first.wire.sourcePin,
+        targetPin: first.wire.targetPin,
+        isLive: true,
+      },
+      points: trunkPoints,
+      layer: 'data',
+      bundleCount: count,
+      bundleLabel: `${count} imports`,
+    })
+  }
+
+  return result
 }
 
 const TYPE_BLOCK_PROTRUSION = 12
@@ -122,6 +196,21 @@ function setPinPositionsForSide(
 ): void {
   if (pins.length === 0) return
 
+  // Subcircuit chips: pin blocks aren't rendered, so distribute pins evenly within chip bounds
+  if (pc.component.subCircuit) {
+    const step = pc.height / (pins.length + 1)
+    for (let i = 0; i < pins.length; i++) {
+      positions.set(pins[i].id, {
+        x: side === 'input'
+          ? pc.worldX
+          : pc.worldX + pc.width,
+        y: pc.worldY + step * (i + 1),
+        z: pinZ,
+      })
+    }
+    return
+  }
+
   const totalUnits = pins.reduce((sum, p) => sum + p.typeShape.units, 0)
   const totalHeight = totalUnits * UNIT_SIZE + Math.max(0, pins.length - 1) * TYPE_PIN_GAP
   const startY = pc.worldY + (pc.height - totalHeight) / 2
@@ -144,31 +233,13 @@ function setPinPositionsForSide(
 }
 
 function manhattanRoute(src: Point3D, tgt: Point3D): Point3D[] {
-  // Simple L-shaped routing: horizontal then vertical
-  // For loop-backs (tgt.x < src.x), route around
-
-  if (tgt.x >= src.x) {
-    // Forward route: right then adjust Y
-    const midX = (src.x + tgt.x) / 2
-    // If crossing z-levels, interpolate z at the midpoint
-    const midZ = (src.z + tgt.z) / 2
-    return [
-      src,
-      { x: midX, y: src.y, z: midZ },
-      { x: midX, y: tgt.y, z: midZ },
-      tgt,
-    ]
-  }
-
-  // Backward route (loop-back): go down/up, left, then to target
-  const offset = CELL_H * 1.5
+  // L-shaped routing: horizontal to midpoint, then vertical to target
+  const midX = (src.x + tgt.x) / 2
   const midZ = (src.z + tgt.z) / 2
   return [
     src,
-    { x: src.x + CELL_W * 0.5, y: src.y, z: src.z },
-    { x: src.x + CELL_W * 0.5, y: Math.max(src.y, tgt.y) + offset, z: midZ },
-    { x: tgt.x - CELL_W * 0.5, y: Math.max(src.y, tgt.y) + offset, z: midZ },
-    { x: tgt.x - CELL_W * 0.5, y: tgt.y, z: tgt.z },
+    { x: midX, y: src.y, z: midZ },
+    { x: midX, y: tgt.y, z: midZ },
     tgt,
   ]
 }

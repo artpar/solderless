@@ -276,6 +276,9 @@ function createNamedWire(scene: Phaser.Scene, pc: PlacedComponent, colorContext?
 }
 
 function createSubcircuit(scene: Phaser.Scene, pc: PlacedComponent, colorContext?: ColorContext): Phaser.GameObjects.Container {
+  if (pc.component.collapsed) {
+    return createChip(scene, pc, colorContext)
+  }
   if (pc.isContainer) {
     return createPlatform(scene, pc, colorContext)
   }
@@ -288,6 +291,15 @@ function createPlatform(scene: Phaser.Scene, pc: PlacedComponent, colorContext?:
   const { component: comp, worldX, worldY, worldZ, width, height, platformDepth } = pc
   const color = colorContext?.componentBodyColor.get(comp.id)
     ?? getComponentColor(comp.kind, comp.isReachable)
+
+  // Entry point glow
+  if (comp.isEntryPoint) {
+    const glowG = scene.add.graphics()
+    drawIsoBoxOnGraphics(glowG, worldX - 3, worldY - 3, worldZ - 1,
+      width + 6, height + 6, platformDepth + 2, '#44aa66', true)
+    glowG.setAlpha(0.3)
+    container.add(glowG)
+  }
 
   drawIsoBoxOnGraphics(g, worldX, worldY, worldZ, width, height, platformDepth, color, comp.isReachable)
   container.add(g)
@@ -330,7 +342,21 @@ function createPlatform(scene: Phaser.Scene, pc: PlacedComponent, colorContext?:
 
 function createChip(scene: Phaser.Scene, pc: PlacedComponent, colorContext?: ColorContext): Phaser.GameObjects.Container {
   const { container, g } = makeContainer(scene, pc, colorContext)
-  const { component: comp, worldX, worldY, worldZ, width, depth } = pc
+  const { component: comp, worldX, worldY, worldZ, width, height, depth } = pc
+
+  // Entry point glow
+  if (comp.isEntryPoint) {
+    const glowG = scene.add.graphics()
+    drawIsoBoxOnGraphics(glowG, worldX - 3, worldY - 3, worldZ - 1,
+      width + 6, height + 6, depth + 2, '#44aa66', true)
+    glowG.setAlpha(0.3)
+    container.addAt(glowG, 0)
+
+    // Entry point badge
+    addCenterText(scene, container, pc, '\u2605 entry', {
+      fontSize: '8px', color: '#66dd88', offsetY: -16,
+    })
+  }
 
   // IC notch
   const notchLeft = toIsometric({ x: worldX + width * 0.35, y: worldY, z: worldZ + depth + 1 })
@@ -357,13 +383,17 @@ function createChip(scene: Phaser.Scene, pc: PlacedComponent, colorContext?: Col
     fontSize: '11px', color: COLORS.pinText, offsetY: 8,
   })
 
-  // Expand hint
+  // Expand/collapse hint
   if (comp.subCircuit) {
-    addCenterText(scene, container, pc, '\u25B6 expand', {
+    const hint = comp.collapsed ? '\u25B6 expand' : '\u25B6 expand'
+    addCenterText(scene, container, pc, hint, {
       fontSize: '8px', color: comp.isReachable ? '#55aa55' : COLORS.deadComp, offsetY: 18,
     })
   }
 
-  addTypePins(scene, container, g, pc)
+  // Skip type pin blocks for file/module subcircuit chips — too many pins create visual noise
+  if (!comp.subCircuit) {
+    addTypePins(scene, container, g, pc)
+  }
   return container
 }
