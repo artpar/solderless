@@ -1,73 +1,64 @@
-# React + TypeScript + Vite
+# Solderless — Circuit Board Code Visualizer
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Visualizes TypeScript/JavaScript code as interactive isometric circuit board diagrams. Functions become components, variables become wires, and control flow becomes visible architecture.
 
-Currently, two official plugins are available:
+## Quick Start
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
-
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+npm install
+npm run dev
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+Open `http://localhost:5199`.
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+## How It Works
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+1. **Write or paste code** in the editor (left panel)
+2. **AST analysis** converts code to a circuit representation — functions, calls, variables, control flow
+3. **Layout engine** places components in 3D world-space and routes wires
+4. **Phaser renderer** draws everything as an interactive isometric circuit board
+
+## Camera Controls
+
+| Action | Input |
+|--------|-------|
+| Pan | WASD / Arrow keys / Left-drag |
+| Rotate | Q / E / Drag compass |
+| Tilt | R (steeper) / F (flatter) / Drag compass vertically |
+| Zoom | Scroll wheel / Trackpad pinch |
+| Camera rotate | Shift + Left-drag |
+| Reset view | Home key / Reset View button |
+
+### Preset Views
+
+Buttons in bottom-right corner: **Iso** (default), **Top** (bird's-eye), **Front**, **Side**, **Steep**
+
+### Compass
+
+The compass in the top-right shows orientation (N/E/S/W). Drag it to rotate/tilt, or click a cardinal direction to snap.
+
+## Layers
+
+Toggle visibility of wire types:
+- **Data** — variable assignments, function arguments
+- **Clock** — control flow (if/else, loops)
+- **Exception** — error paths
+
+## Project Structure
+
 ```
+src/
+  analysis/    — AST → circuit IR (scope tracking, dead-code detection, type resolution)
+  layout/      — 3D placement, wire routing, isometric projection
+  phaser/      — Phaser 3 scene, rendering objects (IsoBox, wires, tooltips)
+  components/  — React UI (CodeEditor, CanvasView, FileTree, LayerToggle)
+  hooks/       — useCircuitAnalysis
+  shared/      — colors, z-order
+```
+
+## Tech Stack
+
+- React 19 + TypeScript
+- Phaser 3 (WebGL rendering)
+- Vite (dev server + build)
+- TypeScript Compiler API (AST analysis)

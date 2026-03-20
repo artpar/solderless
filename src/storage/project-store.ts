@@ -4,7 +4,7 @@ export interface RecentProject {
   openedAt: number
 }
 
-const DB_NAME = 'ast-map'
+const DB_NAME = 'solderless'
 const STORE_NAME = 'recent-projects'
 const DB_VERSION = 1
 
