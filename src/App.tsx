@@ -1,10 +1,13 @@
-import { useState, useCallback, useRef } from 'react'
+import { useState, useCallback, useRef, useEffect } from 'react'
 import { CodeEditor } from './components/CodeEditor'
 import { CanvasView } from './components/CanvasView'
 import { LayerToggle } from './components/LayerToggle'
 import { FileTree } from './components/FileTree'
 import { useCircuitAnalysis, useProjectAnalysis } from './hooks/useCircuitAnalysis'
 import { loadProject, ProjectFile, ProjectData } from './analysis/project-loader'
+import { EventBus, TOGGLE_COLLAPSE } from './phaser/EventBus'
+import { CircuitBoard, Component } from './analysis/circuit-ir'
+import { saveRecentProject, getRecentProjects, removeRecentProject, RecentProject } from './storage/project-store'
 
 type ViewMode =
   | { kind: 'single'; code: string; fileName: string }
@@ -19,20 +22,36 @@ export default function App() {
   const [showData, setShowData] = useState(true)
   const [showClock, setShowClock] = useState(true)
   const [showException, setShowException] = useState(true)
+  const [layoutVersion, setLayoutVersion] = useState(0)
 
   // Single-file analysis
   const singleCode = view.kind === 'single' ? view.code
     : view.kind === 'project' && view.selectedFile ? view.selectedFile.content
     : ''
-  const singleAnalysis = useCircuitAnalysis(singleCode)
+  const singleAnalysis = useCircuitAnalysis(singleCode, layoutVersion)
 
   // Project-level analysis
   const projectFiles = view.kind === 'project' ? view.project.files : null
   const projectName = view.kind === 'project' ? view.project.name : ''
-  const projectAnalysis = useProjectAnalysis(projectFiles, projectName)
+  const projectAnalysis = useProjectAnalysis(projectFiles, projectName, layoutVersion)
 
   // Show project board when no file is selected, otherwise show file board
   const showProjectView = view.kind === 'project' && view.selectedFile === null
+
+  // Handle collapse toggle from Phaser scene
+  useEffect(() => {
+    const onToggle = (compId: string) => {
+      const board = showProjectView ? projectAnalysis.board : singleAnalysis.board
+      if (!board) return
+      const comp = findComponentById(board, compId)
+      if (comp && comp.subCircuit) {
+        comp.collapsed = !comp.collapsed
+        setLayoutVersion(v => v + 1)
+      }
+    }
+    EventBus.on(TOGGLE_COLLAPSE, onToggle)
+    return () => { EventBus.off(TOGGLE_COLLAPSE, onToggle) }
+  })
   const activeBoard = showProjectView ? projectAnalysis.board : singleAnalysis.board
   const activePositioned = showProjectView ? projectAnalysis.positioned : singleAnalysis.positioned
   const activeError = showProjectView ? projectAnalysis.error : singleAnalysis.error
@@ -55,16 +74,44 @@ export default function App() {
     })
   }, [])
 
+  const [recentProjects, setRecentProjects] = useState<RecentProject[]>([])
+  const [showRecents, setShowRecents] = useState(false)
+
+  useEffect(() => {
+    getRecentProjects().then(setRecentProjects).catch(() => {})
+  }, [])
+
   const handleOpenProject = useCallback(async () => {
     try {
       const dirHandle = await (window as any).showDirectoryPicker()
       const project = await loadProject(dirHandle)
       setView({ kind: 'project', project, selectedFile: null })
+      await saveRecentProject(project.name, dirHandle)
+      setRecentProjects(await getRecentProjects())
     } catch (e) {
-      // User cancelled or API not available
       if ((e as Error).name !== 'AbortError') {
         console.error('Failed to open project:', e)
       }
+    }
+  }, [])
+
+  const handleOpenRecent = useCallback(async (recent: RecentProject) => {
+    setShowRecents(false)
+    try {
+      const perm = await (recent.handle as any).requestPermission({ mode: 'read' })
+      if (perm !== 'granted') {
+        await removeRecentProject(recent.name)
+        setRecentProjects(prev => prev.filter(p => p.name !== recent.name))
+        return
+      }
+      const project = await loadProject(recent.handle)
+      setView({ kind: 'project', project, selectedFile: null })
+      await saveRecentProject(project.name, recent.handle)
+      setRecentProjects(await getRecentProjects())
+    } catch (e) {
+      console.error('Failed to reopen project:', e)
+      await removeRecentProject(recent.name)
+      setRecentProjects(prev => prev.filter(p => p.name !== recent.name))
     }
   }, [])
 
@@ -148,9 +195,37 @@ export default function App() {
           </button>
         )}
         {view.kind === 'single' && (
-          <button style={styles.projectBtn} onClick={handleOpenProject}>
-            Open Project Folder
-          </button>
+          <div style={styles.splitBtnWrap}>
+            <button style={styles.projectBtn} onClick={handleOpenProject}>
+              Open Project Folder
+            </button>
+            {recentProjects.length > 0 && (
+              <div style={{ position: 'relative' as const }}>
+                <button
+                  style={styles.dropdownArrow}
+                  onClick={() => setShowRecents(v => !v)}
+                >
+                  {showRecents ? '\u25BC' : '\u25B2'}
+                </button>
+                {showRecents && (
+                  <div style={styles.recentsDropdown}>
+                    <div style={styles.recentsHeader}>Recent Projects</div>
+                    {recentProjects.map(rp => (
+                      <div
+                        key={rp.name}
+                        style={styles.recentItem}
+                        onClick={() => handleOpenRecent(rp)}
+                        onMouseEnter={e => { (e.currentTarget as HTMLElement).style.backgroundColor = '#3a3a3a' }}
+                        onMouseLeave={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'transparent' }}
+                      >
+                        {rp.name}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         )}
       </div>
       <div style={styles.resizeHandle} onMouseDown={onResizeStart} />
@@ -172,6 +247,17 @@ export default function App() {
       </div>
     </div>
   )
+}
+
+function findComponentById(board: CircuitBoard, id: string): Component | null {
+  for (const comp of board.components) {
+    if (comp.id === id) return comp
+    if (comp.subCircuit) {
+      const found = findComponentById(comp.subCircuit, id)
+      if (found) return found
+    }
+  }
+  return null
 }
 
 const styles = {
@@ -224,12 +310,51 @@ const styles = {
     lineHeight: '1.4',
     whiteSpace: 'pre-wrap' as const,
   },
+  splitBtnWrap: {
+    display: 'flex',
+    borderTop: '1px solid #333',
+  },
   projectBtn: {
+    flex: 1,
     padding: '8px',
     backgroundColor: '#2a5a3a',
     color: '#ccc',
     border: 'none',
-    borderTop: '1px solid #333',
+    fontSize: '12px',
+    fontFamily: 'monospace',
+    cursor: 'pointer',
+  },
+  dropdownArrow: {
+    padding: '8px 10px',
+    backgroundColor: '#2a5a3a',
+    color: '#ccc',
+    border: 'none',
+    borderLeft: '1px solid #3a7a4a',
+    fontSize: '10px',
+    fontFamily: 'monospace',
+    cursor: 'pointer',
+  },
+  recentsDropdown: {
+    position: 'absolute' as const,
+    bottom: '100%',
+    right: 0,
+    width: '220px',
+    backgroundColor: '#252525',
+    border: '1px solid #444',
+    borderRadius: '4px',
+    overflow: 'hidden',
+    zIndex: 100,
+  },
+  recentsHeader: {
+    padding: '6px 10px',
+    color: '#888',
+    fontSize: '10px',
+    fontFamily: 'monospace',
+    borderBottom: '1px solid #333',
+  },
+  recentItem: {
+    padding: '6px 10px',
+    color: '#ccc',
     fontSize: '12px',
     fontFamily: 'monospace',
     cursor: 'pointer',

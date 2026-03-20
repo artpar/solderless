@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { ProjectFile } from '../analysis/project-loader'
 
 interface FileTreeProps {
@@ -9,8 +10,17 @@ interface FileTreeProps {
 }
 
 export function FileTree({ files, selectedPath, onSelectFile, onShowProject, projectName }: FileTreeProps) {
-  // Group files by directory
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set())
   const tree = buildTree(files)
+
+  const toggleCollapsed = (dirPath: string) => {
+    setCollapsed(prev => {
+      const next = new Set(prev)
+      if (next.has(dirPath)) next.delete(dirPath)
+      else next.add(dirPath)
+      return next
+    })
+  }
 
   return (
     <div style={styles.container}>
@@ -27,7 +37,7 @@ export function FileTree({ files, selectedPath, onSelectFile, onShowProject, pro
         <span style={styles.count}>{files.length} files</span>
       </div>
       <div style={styles.list}>
-        {renderNode(tree, '', selectedPath, onSelectFile, files)}
+        {renderNode(tree, '', '', selectedPath, onSelectFile, files, collapsed, toggleCollapsed)}
       </div>
     </div>
   )
@@ -59,13 +69,15 @@ function buildTree(files: ProjectFile[]): TreeNode {
 function renderNode(
   node: TreeNode,
   indent: string,
+  parentPath: string,
   selectedPath: string | null,
   onSelectFile: (file: ProjectFile) => void,
   files: ProjectFile[],
+  collapsed: Set<string>,
+  toggleCollapsed: (dirPath: string) => void,
 ): JSX.Element[] {
   const elements: JSX.Element[] = []
   const sorted = [...node.children.entries()].sort(([a, an], [b, bn]) => {
-    // Directories first, then files
     const aDir = an.children.size > 0 && !an.file
     const bDir = bn.children.size > 0 && !bn.file
     if (aDir && !bDir) return -1
@@ -76,16 +88,26 @@ function renderNode(
   for (const [name, child] of sorted) {
     const isDir = child.children.size > 0 && !child.file
     const isSelected = child.file?.path === selectedPath
+    const dirPath = parentPath ? `${parentPath}/${name}` : name
 
     if (isDir) {
+      const isCollapsed = collapsed.has(dirPath)
       elements.push(
-        <div key={`dir-${indent}${name}`} style={styles.dir}>
-          {indent}{name}/
+        <div
+          key={`dir-${dirPath}`}
+          style={styles.dir}
+          onClick={() => toggleCollapsed(dirPath)}
+          onMouseEnter={e => { (e.currentTarget as HTMLElement).style.backgroundColor = '#2a2a2a' }}
+          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'transparent' }}
+        >
+          {indent}<span style={styles.chevron}>{isCollapsed ? '\u25B6' : '\u25BC'}</span> {name}/
         </div>,
       )
-      elements.push(
-        ...renderNode(child, indent + '  ', selectedPath, onSelectFile, files),
-      )
+      if (!isCollapsed) {
+        elements.push(
+          ...renderNode(child, indent + '  ', dirPath, selectedPath, onSelectFile, files, collapsed, toggleCollapsed),
+        )
+      }
     } else if (child.file) {
       elements.push(
         <div
@@ -97,7 +119,7 @@ function renderNode(
           }}
           onClick={() => onSelectFile(child.file!)}
         >
-          {indent}{name}
+          {indent}  {name}
         </div>,
       )
     }
@@ -147,8 +169,13 @@ const styles = {
   dir: {
     padding: '2px 10px',
     color: '#7a9a8a',
-    cursor: 'default',
+    cursor: 'pointer',
     whiteSpace: 'pre' as const,
+  },
+  chevron: {
+    fontSize: '8px',
+    display: 'inline-block',
+    width: '10px',
   },
   file: {
     padding: '2px 10px',
