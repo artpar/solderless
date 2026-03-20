@@ -35,8 +35,8 @@ interface ComputedSize {
 const PLATFORM_Z_STEP = 30    // z-offset per nesting level
 const CONTAINER_PAD = 25      // padding inside a container around children
 const PLATFORM_SLAB = 12      // thickness of the platform slab itself
-const LEVEL_COL_GAP = 60      // horizontal gap between topo-level columns
-const LEVEL_ROW_GAP = 30      // vertical gap between components within a column
+const LEVEL_COL_GAP = 100     // horizontal gap between topo-level columns (room for wire channels)
+const LEVEL_ROW_GAP = 50      // vertical gap between components within a column
 
 export function placeComponents(board: CircuitBoard): PlacementResult {
   const components = board.components
