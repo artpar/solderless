@@ -6,11 +6,11 @@ import { CircuitBoard } from '../analysis/circuit-ir'
 import { getIsoRotation, getIsoAngle } from '../layout/isometric'
 
 const PRESETS = [
-  { label: 'Iso', tilt: 26.57, rot: 0 },
-  { label: 'Top', tilt: 5, rot: 0 },
-  { label: 'Front', tilt: 26.57, rot: 45 },
-  { label: 'Side', tilt: 26.57, rot: -45 },
-  { label: 'Steep', tilt: 50, rot: 0 },
+  { label: 'Iso', tilt: 26, rot: 316 },
+  { label: 'Top', tilt: 5, rot: 316 },
+  { label: 'Front', tilt: 26, rot: 1 },
+  { label: 'Side', tilt: 26, rot: 271 },
+  { label: 'Steep', tilt: 50, rot: 316 },
 ] as const
 
 interface CanvasViewProps {
@@ -29,7 +29,7 @@ function Compass() {
   useEffect(() => {
     const onRot = (deg: number) => setRot(deg)
     const onTilt = (deg: number) => setTilt(deg)
-    const onReset = () => { setRot(0); setTilt(26.57) }
+    const onReset = () => { setRot(316); setTilt(26) }
     EventBus.on(ROTATION_CHANGED, onRot)
     EventBus.on(ANGLE_CHANGED, onTilt)
     EventBus.on(RESET_VIEWPORT, onReset)
@@ -83,6 +83,9 @@ function Compass() {
 
   return (
     <div style={compassStyles.wrapper} onPointerDown={onPointerDown}>
+      <div style={{ color: '#8ab89a', fontFamily: 'monospace', fontSize: '10px', textAlign: 'center', marginBottom: 2 }}>
+        tilt:{tilt.toFixed(1)} rot:{rot.toFixed(1)}
+      </div>
       <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} style={{ cursor: 'grab' }}>
         <g transform={`translate(${size / 2}, ${size / 2})`}>
           {/* Hit area */}

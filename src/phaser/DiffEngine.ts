@@ -126,6 +126,8 @@ export function applyDiff(
     }
 
     const newObj = createComponentObject(scene, pc, colorContext)
+    newObj.setData('componentId', id)
+    scene.input.setDraggable(newObj)
     // Start at slightly offset and fade in
     newObj.setAlpha(0.5)
     scene.tweens.add({
@@ -140,6 +142,8 @@ export function applyDiff(
   // Add new components (fade in)
   for (const pc of diff.components.added) {
     const obj = createComponentObject(scene, pc, colorContext)
+    obj.setData('componentId', pc.component.id)
+    scene.input.setDraggable(obj)
     obj.setAlpha(0)
     scene.tweens.add({
       targets: obj,

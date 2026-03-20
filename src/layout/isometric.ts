@@ -27,9 +27,11 @@ interface IsoState {
 }
 const g = globalThis as unknown as { __isoState?: IsoState }
 if (!g.__isoState) {
-  const tilt = 26.57
+  const tilt = 26
   const tRad = tilt * Math.PI / 180
-  g.__isoState = { tilt, cosT: Math.cos(tRad), sinT: Math.sin(tRad), rot: 0, cosR: 1, sinR: 0 }
+  const rot = 316
+  const rRad = rot * Math.PI / 180
+  g.__isoState = { tilt, cosT: Math.cos(tRad), sinT: Math.sin(tRad), rot, cosR: Math.cos(rRad), sinR: Math.sin(rRad) }
 }
 const isoState = g.__isoState
 

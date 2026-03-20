@@ -48,7 +48,7 @@ export function layoutBoard(board: CircuitBoard): PositionedBoard {
 }
 
 /** Recursively collect and route wires from sub-circuit boards */
-function collectSubBoardWires(
+export function collectSubBoardWires(
   board: CircuitBoard,
   placed: import('./placement').PlacedComponent[],
   allWires: RoutedWire[],

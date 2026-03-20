@@ -1,7 +1,7 @@
 // Main Phaser scene for circuit board visualization
 
 import Phaser from 'phaser'
-import { PositionedBoard } from '../layout/layout'
+import { PositionedBoard, collectSubBoardWires } from '../layout/layout'
 import { CircuitBoard } from '../analysis/circuit-ir'
 import { sortByDepth } from '../shared/z-order'
 import { COLORS, getConnectedWires } from './sceneHelpers'
@@ -12,7 +12,8 @@ import { createTooltip, TooltipContainer } from './objects/Tooltip'
 import { diffBoards, applyDiff } from './DiffEngine'
 import { EventBus, BOARD_CHANGED, LAYERS_CHANGED, COMPONENT_HOVERED, COMPONENT_CLICKED, RESET_VIEWPORT, ANGLE_CHANGED, ROTATION_CHANGED } from './EventBus'
 import { hexToNum } from './util'
-import { toIsometric, setIsoAngle, getIsoAngle, setIsoRotation, getIsoRotation } from '../layout/isometric'
+import { toIsometric, fromIsometric, setIsoAngle, getIsoAngle, setIsoRotation, getIsoRotation } from '../layout/isometric'
+import { routeWires, RoutedWire } from '../layout/wire-routing'
 import { sceneDataRef } from './PhaserGame'
 
 interface Layers {
@@ -35,10 +36,12 @@ export class CircuitScene extends Phaser.Scene {
   private tooltip: TooltipContainer | null = null
 
   private isDragging = false
+  private isDraggingComponent = false
   private isRotating = false
   private lastPointer = { x: 0, y: 0 }
   private alive = false
   private pressedKeys = new Set<string>()
+  private manualPositions: Map<string, { x: number; y: number }> = new Map()
 
   constructor() {
     super({ key: 'CircuitScene' })
@@ -74,6 +77,7 @@ export class CircuitScene extends Phaser.Scene {
   }
 
   private rebuildTimer: number | null = null
+  private wireRebuildTimer: number | null = null
 
   update(): void {
     if (!this.alive) return
@@ -117,6 +121,8 @@ export class CircuitScene extends Phaser.Scene {
     }
 
     if (viewChanged) {
+      EventBus.emit(ROTATION_CHANGED, getIsoRotation())
+      EventBus.emit(ANGLE_CHANGED, getIsoAngle())
       this.scheduleRebuild(true)
     }
   }
@@ -130,6 +136,28 @@ export class CircuitScene extends Phaser.Scene {
     }, 33)
   }
 
+  /** Throttled wire-only rebuild during component drag (~30fps) */
+  private scheduleWireRebuild(): void {
+    if (this.wireRebuildTimer !== null) return
+    this.wireRebuildTimer = window.setTimeout(() => {
+      this.wireRebuildTimer = null
+      if (!this.alive || !this.positioned || !this.board) return
+
+      const { placement } = this.positioned
+      const allWires: RoutedWire[] = []
+
+      // Re-route top-level board wires with updated positions
+      const topRouting = routeWires(this.board, placement.placed)
+      allWires.push(...topRouting.wires)
+
+      // Re-route nested sub-circuit wires
+      collectSubBoardWires(this.board, placement.placed, allWires)
+
+      this.positioned.routing.wires = allWires
+      this.rebuildWires()
+    }, 33)
+  }
+
   private onBoardChanged = (data: { positioned: PositionedBoard | null; board: CircuitBoard | null }) => {
     if (!this.alive) return
 
@@ -140,6 +168,23 @@ export class CircuitScene extends Phaser.Scene {
     if (!data.positioned) {
       this.clearScene()
       return
+    }
+
+    // Prune manual positions for components that no longer exist
+    if (this.manualPositions.size > 0) {
+      const currentIds = new Set(data.positioned.placement.placed.map(pc => pc.component.id))
+      for (const id of this.manualPositions.keys()) {
+        if (!currentIds.has(id)) this.manualPositions.delete(id)
+      }
+    }
+
+    // Apply manual position overrides to the new positioned data
+    for (const pc of data.positioned.placement.placed) {
+      const manual = this.manualPositions.get(pc.component.id)
+      if (manual) {
+        pc.worldX = manual.x
+        pc.worldY = manual.y
+      }
     }
 
     if (prevPositioned) {
@@ -158,12 +203,14 @@ export class CircuitScene extends Phaser.Scene {
 
   private onAngleChanged = (degrees: number) => {
     if (!this.alive) return
+    if (getIsoAngle() === degrees) return
     setIsoAngle(degrees)
     this.buildScene(true)
   }
 
   private onRotationChanged = (degrees: number) => {
     if (!this.alive) return
+    if (getIsoRotation() === degrees) return
     setIsoRotation(degrees)
     this.buildScene(true)
   }
@@ -196,7 +243,7 @@ export class CircuitScene extends Phaser.Scene {
       if (this.isRotating) {
         // Horizontal drag rotates the view
         cam.rotation += dx * 0.003
-      } else if (this.isDragging) {
+      } else if (this.isDragging && !this.isDraggingComponent) {
         // Account for camera rotation when panning
         const cos = Math.cos(-cam.rotation)
         const sin = Math.sin(-cam.rotation)
@@ -210,6 +257,65 @@ export class CircuitScene extends Phaser.Scene {
     this.input.on('pointerup', () => {
       this.isDragging = false
       this.isRotating = false
+    })
+
+    // Component drag handlers
+    this.input.on('dragstart', (_pointer: Phaser.Input.Pointer, gameObject: Phaser.GameObjects.Container) => {
+      this.isDraggingComponent = true
+      canvas.style.cursor = 'grabbing'
+
+      // Save the original world position before any dragging
+      const compId = gameObject.getData('componentId') as string
+      if (compId && this.positioned) {
+        const pc = this.positioned.placement.placed.find(p => p.component.id === compId)
+        if (pc) {
+          gameObject.setData('origWorldX', pc.worldX)
+          gameObject.setData('origWorldY', pc.worldY)
+        }
+      }
+    })
+
+    this.input.on('drag', (_pointer: Phaser.Input.Pointer, gameObject: Phaser.GameObjects.Container, dragX: number, dragY: number) => {
+      gameObject.x = dragX
+      gameObject.y = dragY
+
+      // Update manualPositions in real-time so wires can follow
+      const compId = gameObject.getData('componentId') as string
+      if (compId && this.positioned) {
+        const pc = this.positioned.placement.placed.find(p => p.component.id === compId)
+        if (pc) {
+          // Container starts at (0,0), children use absolute screen coords.
+          // dragX/dragY is the container offset. Compute new world position
+          // by converting (originalScreenPos + offset) back to world space.
+          const origWorldX = gameObject.getData('origWorldX') as number
+          const origWorldY = gameObject.getData('origWorldY') as number
+          const origScreen = toIsometric({ x: origWorldX, y: origWorldY, z: pc.worldZ })
+          const world3d = fromIsometric({ sx: origScreen.sx + dragX, sy: origScreen.sy + dragY }, pc.worldZ)
+          this.manualPositions.set(compId, { x: world3d.x, y: world3d.y })
+          pc.worldX = world3d.x
+          pc.worldY = world3d.y
+          this.scheduleWireRebuild()
+        }
+      }
+    })
+
+    this.input.on('dragend', (_pointer: Phaser.Input.Pointer, gameObject: Phaser.GameObjects.Container) => {
+      this.isDraggingComponent = false
+      canvas.style.cursor = 'default'
+
+      // Convert final screen position back to world-space 3D
+      const compId = gameObject.getData('componentId') as string
+      if (compId && this.positioned) {
+        const pc = this.positioned.placement.placed.find(p => p.component.id === compId)
+        if (pc) {
+          const origWorldX = gameObject.getData('origWorldX') as number
+          const origWorldY = gameObject.getData('origWorldY') as number
+          const origScreen = toIsometric({ x: origWorldX, y: origWorldY, z: pc.worldZ })
+          const world3d = fromIsometric({ sx: origScreen.sx + gameObject.x, sy: origScreen.sy + gameObject.y }, pc.worldZ)
+          this.manualPositions.set(compId, { x: world3d.x, y: world3d.y })
+          this.buildScene(true)
+        }
+      }
     })
 
     // Scroll wheel: zoom toward cursor (smooth, proportional to dy)
@@ -272,8 +378,8 @@ export class CircuitScene extends Phaser.Scene {
 
       // Home — reset view (discrete)
       if (key === 'home') {
-        setIsoAngle(26.57)
-        setIsoRotation(0)
+        setIsoAngle(26)
+        setIsoRotation(316)
         this.buildScene()
       }
     }
@@ -369,17 +475,35 @@ export class CircuitScene extends Phaser.Scene {
     }
     this.updateWireVisibility()
 
+    // Apply manual position overrides before rendering
+    for (const pc of placed) {
+      const manual = this.manualPositions.get(pc.component.id)
+      if (manual) {
+        pc.worldX = manual.x
+        pc.worldY = manual.y
+      }
+    }
+
     // Components (depth sorted)
     const sorted = sortByDepth(placed)
     sorted.forEach((pc, index) => {
       const container = createComponentObject(this, pc, this.positioned!.colorContext)
       container.setDepth(pc.worldZ * 1000 + index)
+      container.setData('componentId', pc.component.id)
+
+      this.input.setDraggable(container)
 
       container.on('pointerover', () => {
+        if (!this.isDraggingComponent) {
+          this.game.canvas.style.cursor = 'grab'
+        }
         this.highlightComponent(pc.component.id)
         EventBus.emit(COMPONENT_HOVERED, pc.component.id)
       })
       container.on('pointerout', () => {
+        if (!this.isDraggingComponent) {
+          this.game.canvas.style.cursor = 'default'
+        }
         this.clearHighlight()
         EventBus.emit(COMPONENT_HOVERED, null)
       })
@@ -469,6 +593,10 @@ export class CircuitScene extends Phaser.Scene {
     if (this.rebuildTimer !== null) {
       clearTimeout(this.rebuildTimer)
       this.rebuildTimer = null
+    }
+    if (this.wireRebuildTimer !== null) {
+      clearTimeout(this.wireRebuildTimer)
+      this.wireRebuildTimer = null
     }
     this.nativeListeners.forEach(fn => fn())
     this.nativeListeners = []
