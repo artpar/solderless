@@ -114,6 +114,10 @@ export function PhaserGame({ positioned, board, layers, onComponentHover, onComp
     <div
       ref={containerRef}
       style={{ width: '100%', height: '100%' }}
+      onPointerDown={() => {
+        const canvas = containerRef.current?.querySelector('canvas')
+        if (canvas) canvas.focus()
+      }}
     />
   )
 }

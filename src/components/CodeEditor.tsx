@@ -423,6 +423,9 @@ export function CodeEditor({ value, onChange, fileName, onFileNameChange, onOpen
         onChange(SAMPLES[name])
         onFileNameChange(name)
       }
+      // Move focus to canvas so keyboard shortcuts keep working
+      const canvas = document.querySelector('canvas')
+      if (canvas) { canvas.tabIndex = -1; canvas.focus() }
     },
     [onChange, onFileNameChange],
   )
