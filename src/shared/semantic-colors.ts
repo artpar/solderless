@@ -1,11 +1,14 @@
 // Semantic coloring: type-tinted components, scope-colored wires, content-hashed subcircuit floors
 
-import { CircuitBoard, Component, Wire, ScopeRegion, TypeTag } from '../analysis/circuit-ir'
+import { CircuitBoard, Component, Wire, ScopeRegion, TypeTag, TypeShape } from '../analysis/circuit-ir'
 import { COLORS, getComponentColor, getTypeColor } from './colors'
 
 export interface ColorContext {
   componentBodyColor: Map<string, string>  // comp.id → hex
   wireColor: Map<string, string>           // wire.id → hex (data wires only)
+  wireBlendedColor: Map<string, string>    // wire.id → blended src+dst body color
+  pinTypeShape: Map<string, TypeShape>     // pin.id → TypeShape
+  pinToComponent: Map<string, string>      // pin.id → component.id
 }
 
 // --- HSL utilities ---
@@ -203,6 +206,59 @@ function assignScopeWireColors(
   walkScopes(board.scopeRegions, 0)
 }
 
+// --- RGB blend utility ---
+
+function blendHex(a: string, b: string, t: number): string {
+  const na = parseInt(a.replace('#', ''), 16)
+  const nb = parseInt(b.replace('#', ''), 16)
+  const r = Math.round(((na >> 16) & 0xff) * (1 - t) + ((nb >> 16) & 0xff) * t)
+  const g = Math.round(((na >> 8) & 0xff) * (1 - t) + ((nb >> 8) & 0xff) * t)
+  const bl = Math.round((na & 0xff) * (1 - t) + (nb & 0xff) * t)
+  return `#${((r << 16) | (g << 8) | bl).toString(16).padStart(6, '0')}`
+}
+
+// --- Pin type shape map ---
+
+function buildPinTypeShapeMap(board: CircuitBoard): Map<string, TypeShape> {
+  const map = new Map<string, TypeShape>()
+  function walk(b: CircuitBoard): void {
+    for (const comp of b.components) {
+      for (const pin of [...comp.inputPins, ...comp.outputPins]) {
+        map.set(pin.id, pin.typeShape)
+      }
+      if (comp.subCircuit) walk(comp.subCircuit)
+    }
+  }
+  walk(board)
+  return map
+}
+
+// --- Wire blended color map ---
+
+function buildWireBlendedColorMap(
+  board: CircuitBoard,
+  pinToComp: Map<string, string>,
+  componentBodyColor: Map<string, string>,
+): Map<string, string> {
+  const map = new Map<string, string>()
+
+  function walk(b: CircuitBoard): void {
+    for (const wire of b.wires) {
+      if (wire.kind !== 'data' || !wire.isLive) continue
+      const srcComp = pinToComp.get(wire.sourcePin)
+      const tgtComp = pinToComp.get(wire.targetPin)
+      if (!srcComp || !tgtComp) continue
+      const srcColor = componentBodyColor.get(srcComp)
+      const tgtColor = componentBodyColor.get(tgtComp)
+      if (srcColor && tgtColor) {
+        map.set(wire.id, blendHex(srcColor, tgtColor, 0.5))
+      }
+    }
+  }
+  walk(board)
+  return map
+}
+
 // --- Main entry point ---
 
 export function buildColorContext(board: CircuitBoard): ColorContext {
@@ -221,12 +277,20 @@ export function buildColorContext(board: CircuitBoard): ColorContext {
   // Scope wire colors
   assignScopeWireColors(board, wireColor)
 
+  // Pin maps
+  const pinToComponent = buildPinToComponentMap(board)
+  const pinTypeShape = buildPinTypeShapeMap(board)
+  const wireBlendedColor = buildWireBlendedColorMap(board, pinToComponent, componentBodyColor)
+
   // Recurse into sub-boards
   for (const sub of board.subBoards) {
     const subCtx = buildColorContext(sub)
     for (const [k, v] of subCtx.componentBodyColor) componentBodyColor.set(k, v)
     for (const [k, v] of subCtx.wireColor) wireColor.set(k, v)
+    for (const [k, v] of subCtx.wireBlendedColor) wireBlendedColor.set(k, v)
+    for (const [k, v] of subCtx.pinTypeShape) pinTypeShape.set(k, v)
+    for (const [k, v] of subCtx.pinToComponent) pinToComponent.set(k, v)
   }
 
-  return { componentBodyColor, wireColor }
+  return { componentBodyColor, wireColor, wireBlendedColor, pinTypeShape, pinToComponent }
 }

@@ -3,7 +3,7 @@
 import Phaser from 'phaser'
 import { RoutedWire } from '../../layout/wire-routing'
 import { IsoPoint, toIsometric } from '../../layout/isometric'
-import { getWireColor, COLORS } from '../../shared/colors'
+import { getWireColor, COLORS, getTypeColor } from '../../shared/colors'
 import { ColorContext } from '../../shared/semantic-colors'
 import { hexToNum, drawDashedPath, lighten, textStyle } from '../util'
 
@@ -18,20 +18,42 @@ export function createWireObject(
   const points = routed.points.map(toIsometric)
   if (points.length < 2) return g
 
-  // Scope-colored data wires: use colorContext if available
+  // Resolve color and width for live data wires with colorContext
   let color: string
-  const scopeColor = colorContext?.wireColor.get(wire.id)
-  if (wire.isLive && wire.kind === 'data' && scopeColor) {
-    color = highlighted ? lighten(scopeColor, 40) : scopeColor
+  let lineWidth: number
+  const isLiveData = wire.isLive && wire.kind === 'data'
+
+  if (isLiveData && colorContext) {
+    // Color: blended src+dst body → scope fallback → default
+    const blended = colorContext.wireBlendedColor.get(wire.id)
+    const scope = colorContext.wireColor.get(wire.id)
+    const base = blended ?? scope ?? getWireColor(wire.kind, wire.isLive, false)
+    color = highlighted ? lighten(base, 40) : base
+
+    // Width: proportional to typeShape.units of source pin
+    const srcShape = colorContext.pinTypeShape.get(wire.sourcePin)
+    const units = srcShape ? Math.min(srcShape.units, 10) : 4
+    lineWidth = 1.0 + units * 0.3
   } else {
     color = getWireColor(wire.kind, wire.isLive, highlighted)
+    lineWidth = wire.kind === 'control' ? 2.5 : wire.kind === 'exception' ? 2 : 1.5
   }
+
   const colorNum = hexToNum(color)
-  const lineWidth = wire.kind === 'control' ? 2.5 : wire.kind === 'exception' ? 2 : 1.5
   const alpha = wire.isLive ? 1 : 0.3
   const drawWidth = highlighted ? lineWidth + 1 : lineWidth
 
-  // Glow effect for highlighted wires (thicker translucent line underneath)
+  // Type-color glow for live data wires (subtle halo showing the type)
+  if (isLiveData && colorContext) {
+    const srcShape = colorContext.pinTypeShape.get(wire.sourcePin)
+    if (srcShape) {
+      const typeColor = hexToNum(getTypeColor(srcShape.tag))
+      g.lineStyle(drawWidth + 4, typeColor, 0.25)
+      drawWirePath(g, points, wire.kind)
+    }
+  }
+
+  // Highlight glow (thicker translucent line underneath)
   if (highlighted) {
     g.lineStyle(drawWidth + 4, colorNum, alpha * 0.3)
     drawWirePath(g, points, wire.kind)
