@@ -50,7 +50,9 @@ export function drawTypePinsOnGraphics(
       z: bz + 5,
     })
     const labelColor = isReachable ? '#eeeeee' : COLORS.deadLabel
-    const label = pin.typeShape.label.slice(0, 6)
+    // Prefer pin name (e.g. parameter "name") over type label (e.g. "any")
+    const label = (pin.label && pin.label !== pin.typeShape.label
+      ? pin.label : pin.typeShape.label).slice(0, 6)
     const text = scene.add.text(labelPos.sx, labelPos.sy, label, textStyle({
       fontSize: '10px',
       color: labelColor,

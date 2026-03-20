@@ -22,6 +22,41 @@ import { buildScopes, detectClosureWires } from './scope-builder'
 import { markDeadCode } from './dead-code'
 import { resolveTypeShape, literalTypeShape, tsTypeToShape } from './type-resolver'
 
+// Well-known globals: object.method → return TypeShape
+// Prevents "any" when the TS checker lacks lib.dom.d.ts
+const WELL_KNOWN_GLOBALS: Record<string, Record<string, TypeShape>> = {
+  console: {
+    log:   { tag: 'void', units: 1, label: 'void' },
+    warn:  { tag: 'void', units: 1, label: 'void' },
+    error: { tag: 'void', units: 1, label: 'void' },
+    info:  { tag: 'void', units: 1, label: 'void' },
+    debug: { tag: 'void', units: 1, label: 'void' },
+  },
+  Math: {
+    floor:  { tag: 'number', units: 8, label: 'number' },
+    ceil:   { tag: 'number', units: 8, label: 'number' },
+    round:  { tag: 'number', units: 8, label: 'number' },
+    max:    { tag: 'number', units: 8, label: 'number' },
+    min:    { tag: 'number', units: 8, label: 'number' },
+    abs:    { tag: 'number', units: 8, label: 'number' },
+    random: { tag: 'number', units: 8, label: 'number' },
+    sqrt:   { tag: 'number', units: 8, label: 'number' },
+    pow:    { tag: 'number', units: 8, label: 'number' },
+  },
+  JSON: {
+    parse:     { tag: 'any', units: 4, label: 'any' },
+    stringify: { tag: 'string', units: 8, label: 'string' },
+  },
+}
+
+// Top-level well-known functions
+const WELL_KNOWN_FUNCTIONS: Record<string, TypeShape> = {
+  parseInt:   { tag: 'number', units: 8, label: 'number' },
+  parseFloat: { tag: 'number', units: 8, label: 'number' },
+  isNaN:      { tag: 'boolean', units: 1, label: 'boolean' },
+  isFinite:   { tag: 'boolean', units: 1, label: 'boolean' },
+}
+
 interface BuildContext {
   board: CircuitBoard
   sourceFile: ts.SourceFile
@@ -228,10 +263,10 @@ function processFunctionDeclaration(
       lastClockComponent: null,
     }
 
-    // Register params in sub-context
+    // Register parameters as symbol → pin mappings (no extra component needed)
     for (let i = 0; i < node.parameters.length; i++) {
       const param = node.parameters[i]
-      registerSymbolPin(param.name, comp.inputPins[i].id, subCtx)
+      registerSymbolPin(param.name, subBoard.inputPins[i].id, subCtx)
     }
 
     for (const stmt of node.body.statements) {
@@ -965,15 +1000,33 @@ function processCallExpression(
       comp.inputPins[i].label = node.arguments[i].getText(ctx.sourceFile).slice(0, 12)
     }
   }
-  // Resolve return type
-  comp.outputPins[0].typeShape = resolveTypeShape(node, ctx.checker)
+  // Resolve return type — use well-known globals/functions when checker returns any
+  const resolvedReturn = resolveTypeShape(node, ctx.checker)
+  if (resolvedReturn.tag === 'any') {
+    // Check for well-known top-level functions (parseInt, isNaN, etc.)
+    const fnShape = ts.isIdentifier(node.expression)
+      ? WELL_KNOWN_FUNCTIONS[node.expression.getText(ctx.sourceFile)]
+      : null
+    // Check for well-known method calls (console.log, Math.floor, etc.)
+    const methodShape = ts.isPropertyAccessExpression(node.expression)
+      && ts.isIdentifier(node.expression.expression)
+      ? WELL_KNOWN_GLOBALS[node.expression.expression.getText(ctx.sourceFile)]
+        ?.[node.expression.name.getText(ctx.sourceFile)]
+      : null
+    comp.outputPins[0].typeShape = fnShape ?? methodShape ?? resolvedReturn
+  } else {
+    comp.outputPins[0].typeShape = resolvedReturn
+  }
 
   addComponent(comp, ctx)
 
   // Wire callee — control dependency, not a visible argument pin
-  // Create a hidden pin just for wiring (not in comp.inputPins so it won't render)
+  // For method calls (a.b()), skip creating the `.b` gate — the call chip already
+  // carries the full name. Only process the object expression for wiring.
   const calleeTargetPin = makePin(comp.id, calleeName, 'input')
-  const calleeExprPin = processExpression(node.expression, ctx, reachable)
+  const calleeExprPin = ts.isPropertyAccessExpression(node.expression)
+    ? processExpression(node.expression.expression, ctx, reachable)
+    : processExpression(node.expression, ctx, reachable)
   if (calleeExprPin) {
     ctx.board.wires.push(makeWire(calleeExprPin, calleeTargetPin.id, 'control'))
   }
@@ -1034,7 +1087,12 @@ function processPropertyAccess(
   const comp = makeComponent('gate', '.', `.${propName}`, 1, 1, loc)
   comp.isReachable = reachable
   comp.inputPins[0].typeShape = resolveTypeShape(node.expression, ctx.checker)
-  comp.outputPins[0].typeShape = resolveTypeShape(node, ctx.checker)
+
+  // Override output type for well-known globals (checker lacks lib.dom.d.ts)
+  const objName = ts.isIdentifier(node.expression) ? node.expression.getText(ctx.sourceFile) : null
+  const knownType = objName && WELL_KNOWN_GLOBALS[objName]?.[propName]
+  comp.outputPins[0].typeShape = knownType ?? resolveTypeShape(node, ctx.checker)
+
   addComponent(comp, ctx)
 
   if (objPin) ctx.board.wires.push(makeWire(objPin, comp.inputPins[0].id))
@@ -1133,9 +1191,10 @@ function processArrowOrFunctionExpr(
     lastClockComponent: null,
   }
 
+  // Register parameters as symbol → pin mappings (no extra component needed)
   for (let i = 0; i < node.parameters.length; i++) {
     const param = node.parameters[i]
-    registerSymbolPin(param.name, comp.inputPins[i].id, subCtx)
+    registerSymbolPin(param.name, subBoard.inputPins[i].id, subCtx)
   }
 
   if (ts.isBlock(node.body)) {
@@ -1274,6 +1333,7 @@ function registerSymbolPin(
   const symId = (sym as any).id ?? sym.escapedName
   ctx.symbolToPinId.set(symId as number, pinId)
 }
+
 
 function addComponent(comp: Component, ctx: BuildContext): void {
   ctx.board.components.push(comp)

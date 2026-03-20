@@ -196,8 +196,9 @@ function setPinPositionsForSide(
 ): void {
   if (pins.length === 0) return
 
-  // Subcircuit chips: pin blocks aren't rendered, so distribute pins evenly within chip bounds
-  if (pc.component.subCircuit) {
+  // File/directory subcircuits: pin blocks aren't rendered, so distribute pins evenly within chip bounds
+  const op = pc.component.operation
+  if (pc.component.subCircuit && (op === 'file' || op === 'directory')) {
     const step = pc.height / (pins.length + 1)
     for (let i = 0; i < pins.length; i++) {
       positions.set(pins[i].id, {
@@ -233,9 +234,12 @@ function setPinPositionsForSide(
 }
 
 function manhattanRoute(src: Point3D, tgt: Point3D): Point3D[] {
-  // L-shaped routing: horizontal to midpoint, then vertical to target
-  const midX = (src.x + tgt.x) / 2
   const midZ = (src.z + tgt.z) / 2
+  // For left-to-right wires, keep vertical segment near the source
+  // to avoid crossing through intermediate components
+  const midX = src.x < tgt.x
+    ? src.x + 15
+    : (src.x + tgt.x) / 2
   return [
     src,
     { x: midX, y: src.y, z: midZ },

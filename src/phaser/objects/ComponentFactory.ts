@@ -333,6 +333,12 @@ function createPlatform(scene: Phaser.Scene, pc: PlacedComponent, colorContext?:
   opText.setOrigin(0, 0.5)
   container.add(opText)
 
+  // Type pins on expanded platforms (skip file/directory containers)
+  const skipPins = comp.subCircuit && (comp.operation === 'file' || comp.operation === 'directory')
+  if (!skipPins) {
+    addTypePins(scene, container, g, pc)
+  }
+
   // Hit area for platform
   const hitPoly = getTopFacePoints(worldX, worldY, worldZ, width, height, platformDepth)
   container.setInteractive(hitPoly, Phaser.Geom.Polygon.Contains)
@@ -391,8 +397,9 @@ function createChip(scene: Phaser.Scene, pc: PlacedComponent, colorContext?: Col
     })
   }
 
-  // Skip type pin blocks for file/module subcircuit chips — too many pins create visual noise
-  if (!comp.subCircuit) {
+  // Skip type pin blocks for file/directory containers — too many pins create visual noise
+  const skipPins = comp.subCircuit && (comp.operation === 'file' || comp.operation === 'directory')
+  if (!skipPins) {
     addTypePins(scene, container, g, pc)
   }
   return container
