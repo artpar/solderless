@@ -969,6 +969,13 @@ function processConditional(
   return mux.outputPins[0].id
 }
 
+function findComponentByOutputPin(pinId: string, ctx: BuildContext): Component | null {
+  for (const comp of ctx.board.components) {
+    if (comp.outputPins.some(p => p.id === pinId)) return comp
+  }
+  return null
+}
+
 function processCallExpression(
   node: ts.CallExpression,
   ctx: BuildContext,
@@ -976,6 +983,25 @@ function processCallExpression(
 ): string | null {
   const loc = getSourceLoc(node, ctx.sourceFile)
   const calleeName = node.expression.getText(ctx.sourceFile).slice(0, 40)
+
+  // Check if this is a direct call to a local function definition
+  if (ts.isIdentifier(node.expression)) {
+    const resolvedPin = resolveIdentifier(node.expression, ctx)
+    if (resolvedPin) {
+      const fnComp = findComponentByOutputPin(resolvedPin, ctx)
+      if (fnComp && fnComp.operation === 'function' && fnComp.inputPins.length === node.arguments.length) {
+        // Wire arguments directly to the function component's input pins
+        for (let i = 0; i < node.arguments.length; i++) {
+          const argPin = processExpression(node.arguments[i], ctx, reachable)
+          if (argPin && fnComp.inputPins[i]) {
+            ctx.board.wires.push(makeWire(argPin, fnComp.inputPins[i].id))
+          }
+        }
+        addClockSegment(fnComp.id, ctx)
+        return fnComp.outputPins[0].id
+      }
+    }
+  }
 
   const comp = makeComponent(
     'subcircuit',

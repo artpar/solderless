@@ -318,36 +318,41 @@ export class CircuitScene extends Phaser.Scene {
       }
     })
 
-    // Scroll wheel: zoom toward cursor (smooth, proportional to dy)
-    // ctrlKey+wheel = trackpad pinch (same behavior)
+    // Scroll wheel: Ctrl/Cmd+scroll = zoom toward cursor, plain scroll = pan
     const onWheel = (e: WheelEvent) => {
       e.preventDefault()
       const cam = this.cameras.main
 
-      // Normalize delta: trackpad pinch sends ctrlKey+wheel with small deltas,
-      // mouse wheel sends larger discrete deltas
       let delta = e.deltaY
       if (e.deltaMode === 1) delta *= 16 // line mode → pixels
-      // Clamp to avoid extreme jumps from momentum scrolling
       delta = Math.max(-100, Math.min(100, delta))
 
-      const zoomFactor = 1 - delta * 0.002
-      const oldZoom = cam.zoom
-      const newZoom = Phaser.Math.Clamp(oldZoom * zoomFactor, 0.1, 5.0)
+      if (e.ctrlKey || e.metaKey) {
+        // Zoom toward cursor
+        const zoomFactor = 1 - delta * 0.002
+        const oldZoom = cam.zoom
+        const newZoom = Phaser.Math.Clamp(oldZoom * zoomFactor, 0.1, 5.0)
 
-      // Convert CSS cursor position to game-space coords
-      const rect = canvas.getBoundingClientRect()
-      const gameX = (e.clientX - rect.left) * (canvas.width / rect.width)
-      const gameY = (e.clientY - rect.top) * (canvas.height / rect.height)
+        const rect = canvas.getBoundingClientRect()
+        const gameX = (e.clientX - rect.left) * (canvas.width / rect.width)
+        const gameY = (e.clientY - rect.top) * (canvas.height / rect.height)
 
-      // Zoom toward cursor: adjust scroll so the world point under the cursor stays fixed
-      // worldX = scrollX + originX + (gameX - originX) / zoom
-      const originX = cam.width * 0.5
-      const originY = cam.height * 0.5
-      const zoomDiff = 1 / oldZoom - 1 / newZoom
-      cam.scrollX += (gameX - originX) * zoomDiff
-      cam.scrollY += (gameY - originY) * zoomDiff
-      cam.zoom = newZoom
+        const originX = cam.width * 0.5
+        const originY = cam.height * 0.5
+        const zoomDiff = 1 / oldZoom - 1 / newZoom
+        cam.scrollX += (gameX - originX) * zoomDiff
+        cam.scrollY += (gameY - originY) * zoomDiff
+        cam.zoom = newZoom
+      } else {
+        // Pan — account for camera rotation
+        let dx = e.deltaX || 0
+        let dy = delta
+        if (e.deltaMode === 1) dx *= 16
+        const cos = Math.cos(-cam.rotation)
+        const sin = Math.sin(-cam.rotation)
+        cam.scrollX += (dx * cos - dy * sin) / cam.zoom
+        cam.scrollY += (dx * sin + dy * cos) / cam.zoom
+      }
     }
     canvas.addEventListener('wheel', onWheel, { passive: false })
     this.nativeListeners.push(() => canvas.removeEventListener('wheel', onWheel))
